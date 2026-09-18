@@ -21,8 +21,16 @@ python -m uvicorn server.app:app --port 8000
 Open <http://127.0.0.1:8000>.
 
 1. **Plan routes** — builds the initial plan.
-2. **Click the map** — injects a closure (or congestion, via the toggle) there.
+2. **Click the map** — injects a closure, severe congestion, or an **ambulance
+   dispatch** at that point (pick the mode above the map).
 3. **Re-plan** — watch the acceptance decision, latency breakdown and solver race.
+
+Scenario suite (S1–S9, the blueprint's operational test set):
+
+```bash
+python scripts/scenarios.py                 # all nine
+python scripts/scenarios.py --only S8 S9    # the emergency ones
+```
 
 No internet required. No CDN, no map tiles, no external JS. The road network is
 drawn on a canvas from our own API, and a synthetic grid is used if the cached
@@ -147,6 +155,53 @@ dynamic, commitment-aware recovery path with end-to-end latency accounting.
 > at the recommended protocol, found the structural reason, fixed it, and the
 > effect is still inside the noise."* That is a result. The alternative — a
 > confident 3% claim from 5 unpaired runs — is not.
+
+### Emergency-vehicle priority (blueprint §4–5)
+
+An ambulance is **not a vehicle in the VRP**. Delivery is a capacitated,
+time-windowed, multi-vehicle routing problem; the ambulance is a single-origin,
+single-destination time-dependent shortest path under a different cost model and
+a tighter deadline. They are solved separately and coupled through the cost
+layer — which needs no new machinery, because a **green corridor is structurally
+identical to a congestion incident** and the recovery engine already handles one.
+
+Measured on the real network (`scripts/scenarios.py --only S8 S9`):
+
+| | |
+|---|---|
+| Ambulance, under priority | **6.2 min** |
+| Ambulance, without priority | 10.4 min |
+| **Time saved** | **4.2 min** |
+| **Cost of priority to the delivery fleet** | **+187.2** (2,781.5 → 2,968.7) |
+| Green corridor | 90 edges, 25-minute window |
+| Emergency path latency | **56.8 ms** (budget 200 ms) |
+
+**Priority is not teleportation.** One-ways and physical closures are still
+respected — S9 closes six edges on the ambulance's *own* route and verifies it
+reroutes around them (41 → 58 nodes, **0 closed edges used**, +0.5 min detour).
+
+**Priority is not free, and we report both sides.** The corridor that speeds the
+ambulance up slows the fleet down. Most systems would show only the first number.
+
+Two further details that matter:
+
+- The corridor is an **exogenous forecast**, not a measurement — it applies only
+  to the forward window `t > now`. Summing it with observed slowdown for the
+  same instant would double-count one physical effect.
+- **Commitment beats corridor**: a vehicle already en route to a stop inside the
+  corridor completes that leg first.
+
+### Scenario suite — S1 to S9
+
+`python scripts/scenarios.py` → `out/scenarios.json`
+
+**9/9 pass with their condition actually exercised.** That qualifier is the
+point: the harness reports a **VACUOUS** verdict when a scenario passes without
+triggering what it claims to test, and it caught three of those during
+development — S1 and S5 were closing *zero* edges (a connectivity guard was
+reopening everything) and S9's first version closed roads that missed the
+ambulance's path entirely. All three would have reported green having tested
+nothing.
 
 ### Convergence analysis
 

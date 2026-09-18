@@ -1,0 +1,110 @@
+{
+ "graph": "OpenStreetMap Bengaluru (simplified), 6,420 junctions",
+ "results": [
+  {
+   "id": "S1",
+   "title": "single road closure",
+   "pass": true,
+   "exercised": true,
+   "detail": [
+    "edges closed: 108 (denominator: this is what was exercised)",
+    "incumbent feasible under new costs: True",
+    "case: CASE 1: rejected, only 0.0% better (< 1% threshold) - not worth the churn",
+    "end-to-end: 435 ms"
+   ]
+  },
+  {
+   "id": "S2",
+   "title": "local severe congestion",
+   "pass": true,
+   "exercised": true,
+   "detail": [
+    "edges congested x6: 861",
+    "stops reassigned: 6 of 30",
+    "case: CASE 1: accepted, 11.8% better than incumbent"
+   ]
+  },
+  {
+   "id": "S3",
+   "title": "priority deadlines protected",
+   "pass": true,
+   "exercised": true,
+   "detail": [
+    "priority customers in instance: 6 of 30",
+    "priority customers served late: 0"
+   ]
+  },
+  {
+   "id": "S4",
+   "title": "vehicle breakdown",
+   "pass": true,
+   "exercised": true,
+   "detail": [
+    "vehicle 0 removed from service, released 11 stops",
+    "fleet now 4 vehicles",
+    "stops still served: 30 of 30",
+    "plan valid after reassignment: True",
+    "violations: []"
+   ]
+  },
+  {
+   "id": "S5",
+   "title": "multiple rush-hour incidents",
+   "pass": true,
+   "exercised": true,
+   "detail": [
+    "incidents injected: 4, edges closed total: 259",
+    "latencies: [443, 439, 432, 435] ms",
+    "p95: 439 ms (budget 500 ms)"
+   ]
+  },
+  {
+   "id": "S6",
+   "title": "congestion clears without churn",
+   "pass": true,
+   "exercised": true,
+   "detail": [
+    "stops reassigned after the jam lifted: 0 of 30",
+    "case: CASE 1: rejected, only 0.0% better (< 1% threshold) - not worth the churn",
+    "restraint is the feature here, not movement"
+   ]
+  },
+  {
+   "id": "S7",
+   "title": "time-dependent costs are real",
+   "pass": true,
+   "exercised": true,
+   "detail": [
+    "depot->C0 at 08:00 : 4.51 min",
+    "depot->C0 at 17:00 : 5.07 min",
+    "difference: 12.5% (a static matrix would give 0%)"
+   ]
+  },
+  {
+   "id": "S8",
+   "title": "ambulance dispatch + green corridor",
+   "pass": true,
+   "exercised": true,
+   "detail": [
+    "unit AMB-1 -> Receiving Hospital 1",
+    "ambulance: 7.1 min vs 11.9 min without priority = 4.8 min SAVED",
+    "corridor: 112 edges, window 0.0-25.0 min",
+    "COST OF PRIORITY to the fleet: +345.7 (3030.2 -> 3375.9)",
+    "emergency path latency: 66.9 ms (budget 200 ms)",
+    "fleet re-plan: 443 ms, CASE 1: accepted, 1.4% better than incumbent"
+   ]
+  },
+  {
+   "id": "S9",
+   "title": "priority respects physical closures",
+   "pass": true,
+   "exercised": true,
+   "detail": [
+    "edges closed ON the ambulance's own route: 6 (this is the condition being exercised)",
+    "path changed: True (41 -> 58 nodes)",
+    "closed edges used by the ambulance: 0 (must be 0)",
+    "detour cost: +0.5 min"
+   ]
+  }
+ ]
+}

@@ -101,7 +101,8 @@ def _routes_payload() -> list[dict]:
 
 
 def _closed_payload() -> list[list[list[float]]]:
-    g: RoadGraph = STATE["graph"]
+    eng = STATE.get("engine")
+    g: RoadGraph = eng.g if eng is not None else STATE["graph"]
     segs = []
     for key, mult in g.incident.items():
         u, v = (int(x) for x in key.split("->"))
@@ -109,6 +110,11 @@ def _closed_payload() -> list[list[list[float]]]:
             segs.append([[g.nodes[u][0], g.nodes[u][1]],
                          [g.nodes[v][0], g.nodes[v][1]],
                          [1 if mult == float("inf") else 0]])
+    for key in g.corridor:                       # green corridor overlay
+        u, v = (int(x) for x in key.split("->"))
+        if u in g.nodes and v in g.nodes:
+            segs.append([[g.nodes[u][0], g.nodes[u][1]],
+                         [g.nodes[v][0], g.nodes[v][1]], [2]])
     return segs
 
 
@@ -151,7 +157,11 @@ def graph():
     internet -- the demo must survive a dead venue Wi-Fi."""
     if STATE["engine"] is None:
         _boot()
-    g: RoadGraph = STATE["graph"]
+    # Render the graph the ENGINE actually routes on, not the full city extract.
+    # They differ (service-area subgraph), and rendering the larger one meant a
+    # click outside the service area silently injected an event onto 0 edges --
+    # the UI looked alive and did nothing.
+    g: RoadGraph = STATE["engine"].g
     seen: set[tuple[int, int]] = set()
     segs: list[list[float]] = []
     for u, out in g.adj.items():
@@ -179,6 +189,45 @@ def plan(budget: float = 1.2):
     return {"ok": True, "plan_ms": round(ms, 1), "summary": _summary(),
             "routes": _routes_payload(), "closed": _closed_payload(),
             "events": STATE["events"]}
+
+
+class AmbulanceIn(BaseModel):
+    lat: float
+    lon: float
+    severity: int = 2          # 2 = critical, needs a trauma-capable hospital
+
+
+@app.post("/api/ambulance")
+def ambulance(a: AmbulanceIn):
+    """Dispatch an ambulance and open the green corridor.
+
+    Returns BOTH sides of the trade: what priority saved the ambulance and what
+    it cost the delivery fleet. Priority is not free and the blueprint is
+    explicit that both numbers get reported.
+    """
+    eng: Engine = STATE["engine"]
+    if eng is None:
+        return JSONResponse({"ok": False, "error": "no plan yet"}, 400)
+    if not eng.ambulances:
+        eng.seed_ambulances(2)
+    d = eng.dispatch_ambulance(a.lat, a.lon, severity=a.severity)
+    if not d.get("ok"):
+        return JSONResponse({"ok": False, "error": d.get("reason", "failed")}, 400)
+    g = STATE["graph"]
+    d["leg_a"] = eng.g.coords(d.pop("leg_a_nodes", []))
+    d["leg_b"] = eng.g.coords(d.pop("leg_b_nodes", []))
+    d["scene"] = [a.lat, a.lon]
+    STATE["events"].append({"kind": "ambulance", "lat": a.lat, "lon": a.lon,
+                            "label": f"Ambulance {d['unit']} -> {d['hospital']}",
+                            "edges": d["corridor_edges"]})
+    d["closed"] = _closed_payload()
+    d["events"] = STATE["events"]
+    d["hospitals"] = [{"name": h.name, "lat": h.lat, "lon": h.lon, "tier": h.tier}
+                      for h in eng.hospitals]
+    d["units"] = [{"name": u.name,
+                   "lat": eng.g.nodes[u.node][0], "lon": eng.g.nodes[u.node][1]}
+                  for u in eng.ambulances if u.node in eng.g.nodes]
+    return d
 
 
 class EventIn(BaseModel):

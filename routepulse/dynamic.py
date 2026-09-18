@@ -14,6 +14,9 @@ import time
 from dataclasses import dataclass, field
 
 from .costs import TimeMatrix
+from .emergency import (Ambulance, EmergencyCall, EmergencyResult,
+                        EmergencyService, Hospital, pick_hospitals,
+                        DEFAULT_CORRIDOR_MULT)
 from .graph import RoadGraph, subgraph_around
 from .model import Instance, ObjectiveWeights, Solution
 from .solvers.heuristics import greedy_insertion, local_search
@@ -56,6 +59,90 @@ class Engine:
         # edge keys whose cost CHANGED since the last matrix build. Tracked so
         # the re-plan can rebuild only the affected rows instead of everything.
         self.changed_keys: set[str] = set()
+        # --- emergency layer (blueprint sections 4-5) -------------------------
+        self.ems = EmergencyService(self.g)
+        lat0 = sum(self.g.nodes[n][0] for n in self.nodes) / len(self.nodes)
+        lon0 = sum(self.g.nodes[n][1] for n in self.nodes) / len(self.nodes)
+        self.hospitals: list[Hospital] = pick_hospitals(self.g, lat0, lon0)
+        self.ambulances: list[Ambulance] = []
+        self.last_emergency: EmergencyResult | None = None
+
+    def seed_ambulances(self, count: int = 2) -> list[Ambulance]:
+        """Park ambulances on real junctions away from the depot."""
+        pool = [n for n in self.g.nodes if n != self.inst.depot_node]
+        pool.sort()
+        step = max(1, len(pool) // max(1, count + 1))
+        self.ambulances = [Ambulance(id=i, node=pool[min(len(pool) - 1,
+                                                        (i + 1) * step)],
+                                     name=f"AMB-{i + 1}")
+                           for i in range(count)]
+        return self.ambulances
+
+    def dispatch_ambulance(self, lat: float, lon: float, severity: int = 2,
+                           corridor_mult: float = DEFAULT_CORRIDOR_MULT,
+                           now: float = 0.0) -> dict:
+        """Dispatch, publish the green corridor, and MEASURE BOTH SIDES.
+
+        Priority is not free. The corridor that speeds the ambulance up slows
+        the delivery fleet down, and the blueprint is explicit that both numbers
+        get reported. We compute the fleet's cost under current costs, apply the
+        corridor, recompute, and report the difference as the price of priority.
+        """
+        if not self.ambulances:
+            self.seed_ambulances()
+        node = self.g.nearest_node(lat, lon)
+        call = EmergencyCall(id=int(now), node=node, severity=severity,
+                             dispatch_time=now)
+
+        res = self.ems.dispatch(call, self.ambulances, self.hospitals)
+        self.last_emergency = res
+        if res.unreachable:
+            return {"ok": False, "reason": "no reachable unit or hospital"}
+
+        # fleet cost BEFORE the corridor exists
+        before = None
+        if self.incumbent is not None:
+            before = score(self.inst, self.incumbent.copy(), self.tm, self.w).score
+
+        t0, t1 = res.corridor_window
+        self.apply_corridor(res.leg_a_nodes + res.leg_b_nodes,
+                            multiplier=corridor_mult, t0=t0, window=t1 - t0)
+
+        # the corridor changed edge costs, so the matrix is stale for the
+        # comparison below -- rebuild before measuring, or the "cost of
+        # priority" would be computed against a matrix that has not seen it
+        rows = self.tm.rows_affected_by(self.changed_keys)
+        if rows:
+            self.tm.rebuild_rows(rows)
+        after = None
+        if self.incumbent is not None:
+            after = score(self.inst, self.incumbent.copy(), self.tm, self.w).score
+
+        cost_of_priority = (after - before) if (before is not None
+                                                and after is not None) else None
+        unit = next((a for a in self.ambulances if a.id == res.unit_id), None)
+        if unit is not None:
+            unit.busy_until = now + res.total_seconds
+
+        return {
+            "ok": True,
+            "unit": unit.name if unit else f"AMB-{res.unit_id}",
+            "hospital": res.hospital,
+            "to_scene_min": round(res.leg_a_seconds / 60, 1),
+            "to_hospital_min": round(res.leg_b_seconds / 60, 1),
+            "total_min": round(res.total_seconds / 60, 1),
+            "baseline_min": round(res.baseline_seconds / 60, 1),
+            "time_saved_min": round(res.time_saved / 60, 1),
+            "path_ms": round(res.latency_ms, 1),
+            "corridor_edges": len(res.corridor_keys),
+            "corridor_window_min": [round(t0 / 60, 1), round(t1 / 60, 1)],
+            "fleet_cost_before": None if before is None else round(before, 1),
+            "fleet_cost_after": None if after is None else round(after, 1),
+            "cost_of_priority": None if cost_of_priority is None
+            else round(cost_of_priority, 1),
+            "leg_a_nodes": res.leg_a_nodes,
+            "leg_b_nodes": res.leg_b_nodes,
+        }
 
     # ------------------------------------------------------------- planning
 
@@ -88,6 +175,26 @@ class Engine:
         self.incumbent = sol
         return sol
 
+    def remove_vehicle(self, vehicle_id: int) -> int:
+        """Take a vehicle out of service (breakdown).
+
+        Its stops are released back into the pending pool and its route is
+        dropped from the incumbent. Modelling a breakdown as capacity=0 instead
+        would leave a vehicle the solver must route but cannot load -- an
+        infeasible instance rather than a recoverable incident.
+        """
+        released = 0
+        self.inst.vehicles = [v for v in self.inst.vehicles if v.id != vehicle_id]
+        if self.incumbent is not None:
+            keep = []
+            for r in self.incumbent.routes:
+                if r.vehicle_id == vehicle_id:
+                    released = len(r.customer_ids)
+                else:
+                    keep.append(r)
+            self.incumbent.routes = keep
+        return released
+
     def freeze_commitments(self) -> list[int]:
         """Mark each vehicle's next stop as committed and non-replannable."""
         frozen: list[int] = []
@@ -95,8 +202,10 @@ class Engine:
             return frozen
         veh = {v.id: v for v in self.inst.vehicles}
         for r in self.incumbent.routes:
-            if r.customer_ids:
-                veh[r.vehicle_id].committed_customer = r.customer_ids[0]
+            # a route can outlive its vehicle if one was removed mid-plan
+            v = veh.get(r.vehicle_id)
+            if v is not None and r.customer_ids:
+                v.committed_customer = r.customer_ids[0]
                 frozen.append(r.customer_ids[0])
         return frozen
 
@@ -112,33 +221,34 @@ class Engine:
         node that is a depot or a customer.
         """
         protected = {self.inst.depot_node} | {c.id for c in self.inst.customers}
-        candidate = self.g.edges_near(lat, lon, radius_m)
+        # Never close an edge that is a stop's own access. Those are exactly the
+        # edges that strand a delivery address, and closing them forced the
+        # connectivity guard below to reopen EVERYTHING -- which silently turned
+        # scenarios S1 and S5 into vacuous no-ops that still reported green.
+        # Excluding them up front means the guard has a feasible subset to keep.
+        candidate = [k for k in self.g.edges_near(lat, lon, radius_m)
+                     if int(k.split("->")[0]) not in protected
+                     and int(k.split("->")[1]) not in protected]
         closed: list[str] = []
         for k in candidate:
             self.g.close_edge(k)
             closed.append(k)
             self.changed_keys.add(k)
 
-        # connectivity guard: reopen the minimum needed so every stop is still
-        # reachable from the depot and can still reach it. Protecting local
-        # degree is not enough -- the one surviving edge can lead into a sealed
-        # pocket, which is exactly what happened the first time we tried this.
-        for _ in range(8):
-            stranded = self._stranded(protected)
-            if not stranded:
-                break
-            reopened = False
-            for k in list(closed):
-                u, v = (int(x) for x in k.split("->"))
-                if u in stranded or v in stranded:
+        # Connectivity guard, progressive. The previous version reopened only
+        # edges TOUCHING a stranded stop, but a stop is usually stranded by
+        # edges nowhere near it -- its access road leads into a sealed pocket.
+        # Nothing matched, so it fell through to reopening everything, which
+        # silently turned S1 and S5 into vacuous no-ops. Reopening in batches
+        # (most-recently-closed first) restores reachability while keeping most
+        # of the closure, and it always terminates.
+        if self._stranded(protected):
+            batch = max(1, len(closed) // 8)
+            while closed and self._stranded(protected):
+                for k in closed[-batch:]:
                     self.g.incident.pop(k, None)
-                    closed.remove(k)
-                    reopened = True
-            if not reopened:
-                for k in list(closed):          # last resort: reopen everything
-                    self.g.incident.pop(k, None)
-                closed.clear()
-                break
+                    self.changed_keys.discard(k)
+                closed = closed[:-batch]
         return closed
 
     def _stranded(self, stops: set[int]) -> set[int]:
