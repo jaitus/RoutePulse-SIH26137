@@ -78,53 +78,67 @@ large explores, small exploits.
 
 ## Measured results — including the ones that do not flatter us
 
-**Real OpenStreetMap Bengaluru network** (6,420 junctions), 6 seeds,
+**Real OpenStreetMap Bengaluru network** (6,420 junctions), **12 seeds**,
 30 customers, 5 vehicles, 350 ms budget, identical instance and matrix per seed,
 every plan re-scored by one official evaluation function. Lower is better.
-Raw data: `out/bench_real_035.json`.
+Raw data: `out/bench_real_12seed.json`.
 
-| Arm | Mean | sd | Best | vs greedy+LS |
-|---|---:|---:|---:|---:|
-| Greedy construction only | 8,527 | 756 | 7,310 | −25.2% |
-| Greedy + local search (no swarm) | 6,813 | 471 | 6,225 | — |
-| **QPSO + LS, warm start** | **6,587** | 764 | 5,705 | **+3.3%** |
-| QPSO + LS, cold start | 6,732 | 594 | 5,998 | +1.2% |
-| Random-restart + LS (no swarm pull) | 6,560 | 785 | 5,628 | +3.7% |
-| QPSO, local search OFF | 8,502 | 748 | 7,310 | −24.8% |
-| OR-Tools (same matrix, same budget) | **5,965** | 372 | 5,520 | +12.5% |
+| Arm | Mean | sd | Best | vs greedy+LS | Wilcoxon *p* |
+|---|---:|---:|---:|---:|---:|
+| Greedy construction only | 8,605 | 601 | 7,474 | −27.0% | 0.0005 ✓ |
+| Greedy + local search (no swarm) | 6,778 | 590 | 5,967 | — | reference |
+| **QPSO + LS, warm start** | 6,751 | 688 | 5,967 | +0.4% | **0.375 ✗** |
+| QPSO + LS, cold start | 6,820 | 615 | 5,661 | −0.6% | **0.910 ✗** |
+| Random-restart + LS (no swarm pull) | 6,706 | 733 | 5,765 | +1.1% | **0.297 ✗** |
+| QPSO, local search OFF | 8,590 | 586 | 7,474 | −26.7% | 0.0005 ✓ |
+| OR-Tools (same matrix, same budget) | **5,749** | 497 | 4,802 | +15.2% | 0.0005 ✓ |
+
+✓ = significant at α=0.05 · ✗ = not significant · paired Wilcoxon signed-rank
+against the greedy+LS reference (the arms share instances, so a paired test is
+the correct one).
 
 **Attribution**
 
-| Comparison | Real Bengaluru | Synthetic grid |
-|---|---:|---:|
-| Improvement layer (D → A) | **+22.5%** | +21.5% |
-| Warm start (A0 → A) | **+2.2%** | −11.4% |
-| Swarm update rule (B → A) | **−0.4%** | −0.5% |
-| vs OR-Tools | −10.4% | −22.4% |
+| Comparison | Contribution | Significant? |
+|---|---:|---|
+| Improvement layer (D → A) | **+21.4%** | yes |
+| Warm start (A0 → A) | +1.0% | no |
+| **Swarm update rule (B → A)** | **−0.7%** | no |
+| vs OR-Tools | −17.5% | yes |
 
 ### What these numbers actually say
 
-1. **The local search does the work (+22.5%). The QPSO update rule contributes
-   about nothing (−0.4%)** against a random-restart control using the identical
-   improvement layer. This held on *both* graphs, which makes it a finding
-   rather than an artefact. It is exactly the critique Sörensen (2015) makes of
-   metaphor-named metaheuristics, and the ablation was designed specifically to
-   detect it. Most submissions never run the control arm and so cannot know.
+**1. The swarm layer produces no statistically significant improvement.**
+QPSO+LS vs greedy+LS is **p = 0.375**. The +0.4% is noise. Random-restart with
+the identical improvement layer is statistically indistinguishable too
+(p = 0.297). What *is* significant is removing the local search (p = 0.0005,
+−21.4%).
 
-2. **Warm start is graph-dependent, and we report the contradiction.** It was
-   11.4% *worse* on the synthetic grid and is 2.2% *better* on the real network.
-   On a sparse grid, seeding the swarm from greedy collapses diversity — the
-   attractor, `gbest` and `mbest` coincide and the well width goes to zero. On
-   the real road network the landscape is rougher and a good incumbent is worth
-   more than the diversity it costs. We follow the real-graph measurement
-   because that is the deployment target. Mitigated either way by seeding only a
-   small elite rather than the whole swarm.
+So the honest decomposition is: **the local search does essentially all the
+work, and the quantum-inspired update rule contributes nothing measurable at
+these budgets.** This is exactly the critique Sörensen (2015) makes of
+metaphor-named metaheuristics, and the ablation and the control arm were built
+specifically to detect it. The result reproduced on two different road networks.
 
-3. **OR-Tools still beats us on solution quality** — by 10.4% on real data,
-   given the same matrix, budget, capacity, time windows and commitment
-   constraints. We do not claim to beat the state of the art on static quality.
-   Our claim is the dynamic, commitment-aware recovery path with end-to-end
-   latency accounting.
+We report this because a claim we cannot defend is worth less than a negative
+result we can. QPSO remains implemented and documented — it is the required
+quantum-inspired module — but its measured contribution is stated, not assumed.
+
+**2. Warm start is graph-dependent and not significant either.** It was 11.4%
+*worse* on the synthetic grid and ~1% *better* on the real network (p = 0.91).
+On a sparse grid, seeding the swarm from greedy collapses diversity — attractor,
+`gbest` and `mbest` coincide and the well width goes to zero. Mitigated by
+seeding only a small elite. Re-planning still warm-starts for an independent
+reason the benchmark cannot see: **churn**.
+
+**3. OR-Tools beats us on solution quality by 17.5% (p = 0.0005)** — given the
+same matrix, budget, capacity, time windows and commitment constraints. We do
+not claim to beat the state of the art on static quality. The claim is the
+dynamic, commitment-aware recovery path with end-to-end latency accounting.
+
+> **Caveat we state rather than bury:** 12 seeds is below the 30-run protocol the
+> literature review recommends. These p-values are indicative. Run
+> `--seeds 30` before quoting them anywhere that matters.
 
 ### Convergence analysis
 

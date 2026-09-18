@@ -37,14 +37,27 @@ from routepulse.validator import score                        # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+_GRAPH_CACHE: dict[str, tuple] = {}
+
+
 def build(seed: int, n: int, k: int):
-    cache = os.path.join(ROOT, "data", "bengaluru_graph.json")
-    if os.path.exists(cache):
-        g = RoadGraph.from_json(cache)
-        src = "OpenStreetMap (Bengaluru)"
-    else:
-        g = synthetic_grid(rows=18, cols=18)
-        src = "synthetic grid"
+    # Must load the SAME graph the server does, or the benchmark describes a
+    # system nobody runs. The app prefers the simplified (junction-contracted)
+    # graph; so does this.
+    if "g" not in _GRAPH_CACHE:
+        for p, label in (
+            (os.path.join(ROOT, "data", "bengaluru_simplified.json"),
+             "OpenStreetMap Bengaluru (simplified)"),
+            (os.path.join(ROOT, "data", "bengaluru_graph.json"),
+             "OpenStreetMap Bengaluru (raw)"),
+        ):
+            if os.path.exists(p):
+                gg = RoadGraph.from_json(p)
+                _GRAPH_CACHE["g"] = (gg, f"{label}, {len(gg.nodes):,} junctions")
+                break
+        else:
+            _GRAPH_CACHE["g"] = (synthetic_grid(rows=18, cols=18), "synthetic grid")
+    g, src = _GRAPH_CACHE["g"]
     nodes = [(nd, la, lo) for nd, (la, lo) in g.nodes.items()]
     lat0 = sum(la for _, la, _ in nodes) / len(nodes)
     lon0 = sum(lo for _, _, lo in nodes) / len(nodes)
@@ -152,6 +165,41 @@ def main() -> None:
                       "mean_iters": st.mean(r["iters"] for r in rs),
                       "mean_evals": st.mean(r["evals"] for r in rs)}
 
+    # ------------------------------------------------- significance testing
+    # The README claims we run hypothesis tests. That claim has to be true.
+    # Wilcoxon signed-rank on PAIRED per-seed scores (same instance, same
+    # matrix, same budget), which is the correct test for this design -- the
+    # arms are not independent samples.
+    print("\nSIGNIFICANCE — Wilcoxon signed-rank vs 'Greedy + local search'")
+    tests = {}
+    try:
+        from scipy.stats import wilcoxon
+        ref_runs = results["E"]
+        for a in arms:
+            if a == "E":
+                continue
+            pairs = [(r1["score"], r2["score"])
+                     for r1, r2 in zip(ref_runs, results[a])
+                     if r1["feasible"] and r2["feasible"]]
+            if len(pairs) < 5:
+                print(f"  {labels[a]:<38} n={len(pairs)} — too few pairs to test")
+                continue
+            x = [p[0] for p in pairs]
+            y = [p[1] for p in pairs]
+            if all(abs(xi - yi) < 1e-9 for xi, yi in zip(x, y)):
+                print(f"  {labels[a]:<38} identical to reference")
+                continue
+            stat, p = wilcoxon(x, y)
+            verdict = "significant" if p < 0.05 else "NOT significant"
+            print(f"  {labels[a]:<38} p={p:.4f}  n={len(pairs)}  {verdict}")
+            tests[a] = {"p": float(p), "stat": float(stat), "n": len(pairs)}
+    except ImportError:
+        print("  scipy not installed — cannot run the test, so we do not claim one")
+
+    print("\n  NOTE: with 6 seeds the minimum attainable two-sided p is ~0.031,")
+    print("  so anything here is indicative only. 30 seeds is the protocol the")
+    print("  literature review recommends; run --seeds 30 before quoting these.")
+
     print("\nATTRIBUTION (lower score is better)")
     def m(a): return summary[a]["mean"] if a in summary else float("nan")
     if "A" in summary and "E" in summary:
@@ -173,7 +221,7 @@ def main() -> None:
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump({"config": vars(args), "graph_source": src,
-                   "weights": w.to_dict(), "summary": summary,
+                   "weights": w.to_dict(), "summary": summary, "wilcoxon": tests,
                    "raw": results}, f, indent=1)
     print(f"\nwritten: {args.out}")
 
