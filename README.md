@@ -78,53 +78,74 @@ large explores, small exploits.
 
 ## Measured results — including the ones that do not flatter us
 
-6 seeds, 30 customers, 5 vehicles, 350 ms budget, identical instance and matrix
-per seed, every plan re-scored by one official evaluation function.
-Lower is better.
+**Real OpenStreetMap Bengaluru network** (6,420 junctions), 6 seeds,
+30 customers, 5 vehicles, 350 ms budget, identical instance and matrix per seed,
+every plan re-scored by one official evaluation function. Lower is better.
+Raw data: `out/bench_real_035.json`.
 
 | Arm | Mean | sd | Best | vs greedy+LS |
 |---|---:|---:|---:|---:|
-| Greedy construction only | 5,290 | 421 | 4,805 | −27.9% |
-| Greedy + local search (no swarm) | 4,135 | 415 | 3,743 | — |
-| **QPSO + LS, warm start** | 4,102 | 465 | 3,532 | +0.8% |
-| **QPSO + LS, cold start** | **3,681** | 371 | 2,978 | **+11.0%** |
-| Random-restart + LS (no swarm pull) | 4,082 | 488 | 3,450 | +1.3% |
-| QPSO, local search OFF | 5,222 | 469 | 4,631 | −26.3% |
-| OR-Tools (same matrix, same budget) | 3,351 | 239 | 2,942 | +19.0% |
+| Greedy construction only | 8,527 | 756 | 7,310 | −25.2% |
+| Greedy + local search (no swarm) | 6,813 | 471 | 6,225 | — |
+| **QPSO + LS, warm start** | **6,587** | 764 | 5,705 | **+3.3%** |
+| QPSO + LS, cold start | 6,732 | 594 | 5,998 | +1.2% |
+| Random-restart + LS (no swarm pull) | 6,560 | 785 | 5,628 | +3.7% |
+| QPSO, local search OFF | 8,502 | 748 | 7,310 | −24.8% |
+| OR-Tools (same matrix, same budget) | **5,965** | 372 | 5,520 | +12.5% |
 
 **Attribution**
 
-| Comparison | Contribution |
-|---|---:|
-| Improvement layer (D → A) | **+21.5%** |
-| Warm start (A0 → A) | **−11.4%** |
-| Swarm update rule (B → A) | **−0.5%** |
-| vs OR-Tools | −22.4% |
+| Comparison | Real Bengaluru | Synthetic grid |
+|---|---:|---:|
+| Improvement layer (D → A) | **+22.5%** | +21.5% |
+| Warm start (A0 → A) | **+2.2%** | −11.4% |
+| Swarm update rule (B → A) | **−0.4%** | −0.5% |
+| vs OR-Tools | −10.4% | −22.4% |
 
 ### What these numbers actually say
 
-Three findings we report rather than hide:
+1. **The local search does the work (+22.5%). The QPSO update rule contributes
+   about nothing (−0.4%)** against a random-restart control using the identical
+   improvement layer. This held on *both* graphs, which makes it a finding
+   rather than an artefact. It is exactly the critique Sörensen (2015) makes of
+   metaphor-named metaheuristics, and the ablation was designed specifically to
+   detect it. Most submissions never run the control arm and so cannot know.
 
-1. **The local search does most of the work (+21.5%).** The QPSO update rule
-   itself contributes about **nothing** (−0.5% against a random-restart control
-   using the identical improvement layer). This is precisely the critique
-   Sörensen (2015) makes of metaphor-named metaheuristics, and we designed the
-   ablation specifically to detect it. Most submissions in this space never run
-   the control arm and so cannot know.
+2. **Warm start is graph-dependent, and we report the contradiction.** It was
+   11.4% *worse* on the synthetic grid and is 2.2% *better* on the real network.
+   On a sparse grid, seeding the swarm from greedy collapses diversity — the
+   attractor, `gbest` and `mbest` coincide and the well width goes to zero. On
+   the real road network the landscape is rougher and a good incumbent is worth
+   more than the diversity it costs. We follow the real-graph measurement
+   because that is the deployment target. Mitigated either way by seeding only a
+   small elite rather than the whole swarm.
 
-2. **Warm-starting the whole swarm is harmful (−11.4%).** Seeding every particle
-   from the incumbent makes the local attractor, `gbest` and `mbest` coincide,
-   the well width `L = beta*|mbest − x|` collapses, and the swarm cannot leave.
-   Fixed by seeding only a small elite; initial planning now uses a cold start.
-   Re-planning still warm-starts on purpose — there the objective is **churn**,
-   not raw score, and a cold solve re-tasks every driver. The benchmark does not
-   measure churn, which is exactly why the two code paths differ.
+3. **OR-Tools still beats us on solution quality** — by 10.4% on real data,
+   given the same matrix, budget, capacity, time windows and commitment
+   constraints. We do not claim to beat the state of the art on static quality.
+   Our claim is the dynamic, commitment-aware recovery path with end-to-end
+   latency accounting.
 
-3. **OR-Tools still beats us on solution quality.** It is given the same matrix,
-   the same budget, the same capacity and time-window constraints, and the same
-   commitment constraints. We do not claim to beat the state of the art on
-   static quality. Our claim is the dynamic, commitment-aware recovery path with
-   end-to-end latency accounting.
+### Convergence analysis
+
+`python scripts/convergence.py --budget 4.0 --seeds 3 --cold`
+→ `out/convergence.png`, `out/convergence.json`
+
+Cold start, real network, 3 seeds, 4 s budget:
+
+| Measure | Value |
+|---|---|
+| gbest improvement | **+43.6%** (11,693 → 6,600) |
+| Swarm diversity | 0.2205 → 0.0505 (**77% collapse**) |
+| β (contraction–expansion) | 0.988 → 0.659 |
+| Stagnation onset | **iteration 8** of 41 |
+
+Convergence analysis is not the same thing as an anytime curve, and the sponsor
+asks for it by name. The useful finding here is the stagnation point: **the
+swarm has effectively converged by iteration 8**, so the remaining ~33
+iterations of the budget buy almost nothing. That argues for either a shorter
+budget or a restart/diversification mechanism after stagnation — a concrete next
+step the curve earned.
 
 A 2025 systematic review of this field (Liu, Parkinson & Best, *Smart Cities*
 8:206) found that of fifteen peer-reviewed studies, **none** reported end-to-end
@@ -200,7 +221,7 @@ FORMULATION.md    Deliverable 2
 
 ## Known limitations
 
-- Traffic is **simulated**, not live. Free city-scale real-time traffic for an
+- Road network is REAL (OpenStreetMap, 6,420 junctions). Delivery stops and traffic are **simulated**, not live. Free city-scale real-time traffic for an
   Indian city is not obtainable; the time-of-day profile is a plausible model,
   not a measurement.
 - p95 < 500 ms is **not yet met** on the racing path (see above).

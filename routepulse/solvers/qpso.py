@@ -294,8 +294,12 @@ def solve_qpso(inst: Instance, tm: TimeMatrix, w: ObjectiveWeights,
         if time.perf_counter() >= deadline:
             # record the partial generation too -- otherwise a tight budget
             # produces an empty convergence history, which is exactly the
-            # "we have no evidence" failure the blueprint warns about
-            _record(beta_hi)
+            # "we have no evidence" failure the blueprint warns about.
+            # Use the CURRENT annealed beta, not beta_hi: recording the initial
+            # value here put a spurious spike on the last point of every plot.
+            frac_now = min(1.0, (time.perf_counter() - t_start)
+                           / max(1e-9, time_budget))
+            _record(beta_hi - (beta_hi - beta_lo) * frac_now)
             break
 
         # ---- mean best position (the quantum centre)

@@ -52,21 +52,28 @@ class Engine:
     # ------------------------------------------------------------- planning
 
     def initial_plan(self, budget: float = 1.2, seed: int = 0) -> Solution:
-        """Initial planning uses a COLD start.
+        """Initial planning warm-starts from a greedy construction.
 
-        Measured (scripts/bench.py, 6 seeds): warm-starting the swarm from the
-        greedy solution is ~11% WORSE than a cold start, because the attractor,
-        gbest and mbest all coincide and the well width collapses.
+        This setting is GRAPH-DEPENDENT and we have measured both ways:
 
-        Re-planning still warm-starts -- there the point is not raw score but
-        CHURN: a cold solve returns a completely different plan and re-tasks
-        every driver. The benchmark does not measure that, so the two paths
-        deliberately differ.
+          synthetic grid   warm start was 11.4% WORSE than cold
+          real Bengaluru   warm start is   2.2% BETTER than cold
+
+        On the sparse synthetic grid, seeding the swarm from greedy collapsed
+        diversity (attractor, gbest and mbest coincide, well width -> 0). On the
+        real road network the search space is far rougher and a good incumbent
+        is worth more than the diversity it costs. We follow the real-graph
+        measurement because that is the deployment target, and we record the
+        contradiction rather than quietly picking the flattering number.
+
+        Re-planning warm-starts for a second, independent reason: CHURN. A cold
+        solve returns a completely different plan and re-tasks every driver. The
+        benchmark scores solution quality only, so it cannot see that.
         """
         base = score(self.inst, greedy_insertion(self.inst, self.tm, self.w, seed),
                      self.tm, self.w)
         sol, _ = solve_qpso(self.inst, self.tm, self.w, time_budget=budget,
-                            seed=seed, warm_start=None)
+                            seed=seed, warm_start=base)
         sol = score(self.inst, sol, self.tm, self.w)
         if base.feasible and (not sol.feasible or base.score < sol.score):
             sol = base

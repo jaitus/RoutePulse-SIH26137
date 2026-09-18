@@ -1,0 +1,448 @@
+{
+ "config": {
+  "seeds": 6,
+  "budget": 0.35,
+  "n": 30,
+  "k": 5,
+  "out": "out/bench_real_035.json"
+ },
+ "graph_source": "OpenStreetMap (Bengaluru)",
+ "weights": {
+  "alpha_travel": 1.0,
+  "beta_lateness": 8.0,
+  "gamma_congestion": 0.5,
+  "delta_churn": 40.0,
+  "lambda_search_penalty": 1000000.0
+ },
+ "summary": {
+  "GREEDY": {
+   "label": "Greedy construction only",
+   "mean": 8527.05098306571,
+   "sd": 756.049535687841,
+   "best": 7310.248794740695,
+   "feasible": 6,
+   "runs": 6,
+   "mean_ms": 5.624716666640476,
+   "mean_iters": 0,
+   "mean_evals": 0
+  },
+  "E": {
+   "label": "Greedy + local search (no swarm)",
+   "mean": 6813.202461425626,
+   "sd": 471.0903122685578,
+   "best": 6224.828740761447,
+   "feasible": 6,
+   "runs": 6,
+   "mean_ms": 65.38380000013906,
+   "mean_iters": 0,
+   "mean_evals": 0
+  },
+  "A": {
+   "label": "QPSO + LS, warm start   [proposed]",
+   "mean": 6586.513084753209,
+   "sd": 764.367584932461,
+   "best": 5704.802820759998,
+   "feasible": 6,
+   "runs": 6,
+   "mean_ms": 390.1367666666526,
+   "mean_iters": 3.8333333333333335,
+   "mean_evals": 86.66666666666667
+  },
+  "A0": {
+   "label": "QPSO + LS, cold start",
+   "mean": 6731.880229152741,
+   "sd": 594.2394761917843,
+   "best": 5997.859077426325,
+   "feasible": 6,
+   "runs": 6,
+   "mean_ms": 397.47818333322965,
+   "mean_iters": 3.5,
+   "mean_evals": 77.83333333333333
+  },
+  "B": {
+   "label": "Random-restart + LS (no swarm pull)",
+   "mean": 6560.383607659981,
+   "sd": 784.5468954240304,
+   "best": 5628.206399799225,
+   "feasible": 6,
+   "runs": 6,
+   "mean_ms": 370.9314000000177,
+   "mean_iters": 4.333333333333333,
+   "mean_evals": 91.33333333333333
+  },
+  "D": {
+   "label": "QPSO, local search OFF",
+   "mean": 8501.566575655384,
+   "sd": 748.318628647793,
+   "best": 7310.248794740695,
+   "feasible": 6,
+   "runs": 6,
+   "mean_ms": 353.15846666662765,
+   "mean_iters": 4.5,
+   "mean_evals": 96.66666666666667
+  },
+  "OR": {
+   "label": "OR-Tools (same matrix/budget)",
+   "mean": 5965.298851573781,
+   "sd": 372.4695603710381,
+   "best": 5520.318882256139,
+   "feasible": 6,
+   "runs": 6,
+   "mean_ms": 371.83774999994057,
+   "mean_iters": 0,
+   "mean_evals": 0
+  }
+ },
+ "raw": {
+  "GREEDY": [
+   {
+    "score": 8732.60903333372,
+    "travel": 8732.60903333372,
+    "feasible": true,
+    "ms": 4.216400000132126,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 7310.248794740695,
+    "travel": 7310.248794740695,
+    "feasible": true,
+    "ms": 4.672300000038376,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 8259.31095500277,
+    "travel": 8259.31095500277,
+    "feasible": true,
+    "ms": 4.372699999748875,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 9645.300972057768,
+    "travel": 9645.300972057768,
+    "feasible": true,
+    "ms": 7.218799999918701,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 8600.092562429005,
+    "travel": 8600.092562429005,
+    "feasible": true,
+    "ms": 7.026199999927485,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 8614.7435808303,
+    "travel": 8614.7435808303,
+    "feasible": true,
+    "ms": 6.241900000077294,
+    "iters": 0,
+    "evals": 0
+   }
+  ],
+  "E": [
+   {
+    "score": 6750.564269382523,
+    "travel": 6750.564269382523,
+    "feasible": true,
+    "ms": 110.15069999984917,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 6550.622390500399,
+    "travel": 6550.622390500399,
+    "feasible": true,
+    "ms": 30.09860000020126,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 6770.990999881287,
+    "travel": 6770.990999881287,
+    "feasible": true,
+    "ms": 45.73190000019167,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 6950.5069003658755,
+    "travel": 6950.5069003658755,
+    "feasible": true,
+    "ms": 70.85550000010699,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 7631.701467662222,
+    "travel": 7631.701467662222,
+    "feasible": true,
+    "ms": 68.01010000026508,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 6224.828740761447,
+    "travel": 6224.828740761447,
+    "feasible": true,
+    "ms": 67.45600000022023,
+    "iters": 0,
+    "evals": 0
+   }
+  ],
+  "A": [
+   {
+    "score": 6618.272164997869,
+    "travel": 6618.272164997869,
+    "feasible": true,
+    "ms": 406.0073000000557,
+    "iters": 4,
+    "evals": 82
+   },
+   {
+    "score": 6550.622390500399,
+    "travel": 6550.622390500399,
+    "feasible": true,
+    "ms": 359.5141999999214,
+    "iters": 4,
+    "evals": 89
+   },
+   {
+    "score": 5786.956215437114,
+    "travel": 5786.956215437114,
+    "feasible": true,
+    "ms": 404.72719999979745,
+    "iters": 4,
+    "evals": 96
+   },
+   {
+    "score": 7226.723449161651,
+    "travel": 7226.723449161651,
+    "feasible": true,
+    "ms": 404.74570000014864,
+    "iters": 4,
+    "evals": 87
+   },
+   {
+    "score": 7631.701467662222,
+    "travel": 7631.701467662222,
+    "feasible": true,
+    "ms": 359.2447999999422,
+    "iters": 4,
+    "evals": 94
+   },
+   {
+    "score": 5704.802820759998,
+    "travel": 5704.802820759998,
+    "feasible": true,
+    "ms": 406.58140000005005,
+    "iters": 3,
+    "evals": 72
+   }
+  ],
+  "A0": [
+   {
+    "score": 6632.404086594265,
+    "travel": 6632.404086594265,
+    "feasible": true,
+    "ms": 408.1936000002315,
+    "iters": 3,
+    "evals": 72
+   },
+   {
+    "score": 6152.491305265659,
+    "travel": 6152.491305265659,
+    "feasible": true,
+    "ms": 408.13530000014,
+    "iters": 3,
+    "evals": 72
+   },
+   {
+    "score": 6969.322649868008,
+    "travel": 6969.322649868008,
+    "feasible": true,
+    "ms": 367.4841999995806,
+    "iters": 4,
+    "evals": 96
+   },
+   {
+    "score": 7060.743351290973,
+    "travel": 7060.743351290973,
+    "feasible": true,
+    "ms": 403.1646999997065,
+    "iters": 3,
+    "evals": 72
+   },
+   {
+    "score": 7578.460904471213,
+    "travel": 7578.460904471213,
+    "feasible": true,
+    "ms": 403.0938999999307,
+    "iters": 4,
+    "evals": 79
+   },
+   {
+    "score": 5997.859077426325,
+    "travel": 5997.859077426325,
+    "feasible": true,
+    "ms": 394.79739999978847,
+    "iters": 4,
+    "evals": 76
+   }
+  ],
+  "B": [
+   {
+    "score": 6549.954093676678,
+    "travel": 6549.954093676678,
+    "feasible": true,
+    "ms": 367.5204000001031,
+    "iters": 5,
+    "evals": 101
+   },
+   {
+    "score": 6550.622390500399,
+    "travel": 6550.622390500399,
+    "feasible": true,
+    "ms": 355.23890000013125,
+    "iters": 4,
+    "evals": 79
+   },
+   {
+    "score": 5775.09384515971,
+    "travel": 5775.09384515971,
+    "feasible": true,
+    "ms": 396.01409999977477,
+    "iters": 4,
+    "evals": 93
+   },
+   {
+    "score": 7226.723449161651,
+    "travel": 7226.723449161651,
+    "feasible": true,
+    "ms": 358.8442000000214,
+    "iters": 5,
+    "evals": 99
+   },
+   {
+    "score": 7631.701467662222,
+    "travel": 7631.701467662222,
+    "feasible": true,
+    "ms": 355.7322000001477,
+    "iters": 4,
+    "evals": 87
+   },
+   {
+    "score": 5628.206399799225,
+    "travel": 5628.206399799225,
+    "feasible": true,
+    "ms": 392.2385999999278,
+    "iters": 4,
+    "evals": 89
+   }
+  ],
+  "D": [
+   {
+    "score": 8732.60903333372,
+    "travel": 8732.60903333372,
+    "feasible": true,
+    "ms": 351.426199999878,
+    "iters": 5,
+    "evals": 116
+   },
+   {
+    "score": 7310.248794740695,
+    "travel": 7310.248794740695,
+    "feasible": true,
+    "ms": 353.94799999994575,
+    "iters": 4,
+    "evals": 75
+   },
+   {
+    "score": 8163.875154333078,
+    "travel": 8163.875154333078,
+    "feasible": true,
+    "ms": 354.93829999995796,
+    "iters": 5,
+    "evals": 101
+   },
+   {
+    "score": 9593.33026855118,
+    "travel": 9593.33026855118,
+    "feasible": true,
+    "ms": 353.03139999996347,
+    "iters": 5,
+    "evals": 105
+   },
+   {
+    "score": 8600.092562429005,
+    "travel": 8600.092562429005,
+    "feasible": true,
+    "ms": 353.0387000000701,
+    "iters": 4,
+    "evals": 94
+   },
+   {
+    "score": 8609.243640544624,
+    "travel": 8609.243640544624,
+    "feasible": true,
+    "ms": 352.5681999999506,
+    "iters": 4,
+    "evals": 89
+   }
+  ],
+  "OR": [
+   {
+    "score": 6126.648058769437,
+    "travel": 6126.648058769437,
+    "feasible": true,
+    "ms": 448.52439999976923,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 5614.250148144803,
+    "travel": 5614.250148144803,
+    "feasible": true,
+    "ms": 355.4045999999289,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 5882.474256156815,
+    "travel": 5882.474256156815,
+    "feasible": true,
+    "ms": 356.93869999977323,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 6121.410828365875,
+    "travel": 6121.410828365875,
+    "feasible": true,
+    "ms": 356.1141000000134,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 6526.690935749617,
+    "travel": 6526.690935749617,
+    "feasible": true,
+    "ms": 356.21480000008887,
+    "iters": 0,
+    "evals": 0
+   },
+   {
+    "score": 5520.318882256139,
+    "travel": 5520.318882256139,
+    "feasible": true,
+    "ms": 357.82990000006976,
+    "iters": 0,
+    "evals": 0
+   }
+  ]
+ }
+}
