@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Local scratch
+scratch/
+tmp/
+*.log
+
+# NOTE: data/*.json and out/*.json are deliberately COMMITTED.
+# The cached OpenStreetMap graph is what makes the demo run offline, and the
+# benchmark outputs are the evidence behind every number in the README.
+# Reproducibility beats a tidy repo.
