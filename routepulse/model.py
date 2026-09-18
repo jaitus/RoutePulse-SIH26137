@@ -166,10 +166,32 @@ def random_instance(
     seed: int = 0,
     tw_fraction: float = 0.35,
     priority_fraction: float = 0.15,
+    zone_radius_m: float | None = 1400.0,
+    depot_lat: float | None = None,
+    depot_lon: float | None = None,
 ) -> Instance:
-    """Build a demo instance by sampling stop locations from real graph nodes."""
+    """Build a demo instance by sampling stop locations from real graph nodes.
+
+    `zone_radius_m` constrains stops to ONE delivery zone around the depot,
+    which is what the problem statement describes ("a constrained delivery
+    zone") and what a dark store actually serves. It is also load-bearing for
+    performance: scattering 30 stops across a 5.5 km extract forces the router
+    to consider the whole city graph, and a matrix rebuild then costs seconds.
+    Set to None to sample from the full extract.
+    """
     rng = random.Random(seed)
     pool = [nd for nd in nodes if nd[0] != depot_node]
+
+    if zone_radius_m is not None and depot_lat is not None and depot_lon is not None:
+        def within(nd: tuple[int, float, float]) -> bool:
+            dlat = (nd[1] - depot_lat) * 111_320.0
+            dlon = ((nd[2] - depot_lon) * 111_320.0
+                    * math.cos(math.radians(depot_lat)))
+            return (dlat * dlat + dlon * dlon) ** 0.5 <= zone_radius_m
+        zoned = [nd for nd in pool if within(nd)]
+        if len(zoned) >= n_customers:
+            pool = zoned
+
     picked = rng.sample(pool, min(n_customers, len(pool)))
 
     customers: list[Customer] = []

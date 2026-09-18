@@ -63,7 +63,8 @@ def build(seed: int, n: int, k: int):
     lon0 = sum(lo for _, _, lo in nodes) / len(nodes)
     depot = g.nearest_node(lat0, lon0)
     inst = random_instance(depot, nodes, n_customers=n, n_vehicles=k,
-                           capacity=110, seed=seed)
+                           capacity=110, seed=seed,
+                           depot_lat=g.nodes[depot][0], depot_lon=g.nodes[depot][1])
     tm = TimeMatrix(g, [inst.depot_node] + [c.id for c in inst.customers], buckets=3)
     return g, inst, tm, src
 

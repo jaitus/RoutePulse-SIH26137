@@ -80,7 +80,8 @@ def main() -> None:
     print(f"graph: {src} ({len(g.nodes):,} nodes)")
     for seed in range(args.seeds):
         inst = random_instance(depot, nodes, n_customers=args.n,
-                               n_vehicles=args.k, capacity=110, seed=seed)
+                               n_vehicles=args.k, capacity=110, seed=seed,
+                           depot_lat=g.nodes[depot][0], depot_lon=g.nodes[depot][1])
         tm = TimeMatrix(g, [inst.depot_node] + [c.id for c in inst.customers],
                         buckets=3)
         warm = None if args.cold else score(

@@ -152,13 +152,23 @@ class RoadGraph:
     def clear_corridor(self) -> None:
         self.corridor.clear()
 
-    def check_fifo(self, samples: int = 60, horizon: float = 14 * 3600.0) -> list[str]:
+    def check_fifo(self, samples: int = 60, horizon: float = 14 * 3600.0,
+                   only_keys: set[str] | None = None) -> list[str]:
         """Assert leaving later never means arriving earlier, on the EFFECTIVE
-        profile (after all overlays). Returns a list of violating edge keys."""
+        profile (after all overlays). Returns a list of violating edge keys.
+
+        `only_keys` restricts the check to specific edges. FIFO can only be
+        broken by a time-varying overlay, and the base time-of-day profile is
+        verified once at load; re-scanning all 16,413 edges on every re-plan
+        cost 400 ms of a 500 ms budget for no information. Checking just the
+        edges carrying an overlay is both sound and ~400x cheaper.
+        """
         bad: list[str] = []
         step = horizon / samples
         for u, out in self.adj.items():
             for (v, length_m, spd, key) in out:
+                if only_keys is not None and key not in only_keys:
+                    continue
                 prev_arr = -math.inf
                 for i in range(samples):
                     t = i * step
@@ -175,9 +185,15 @@ class RoadGraph:
     # ------------------------------------------------------------ shortest path
 
     def dijkstra_tt(self, src: int, targets: set[int], depart_t: float,
-                    ) -> dict[int, float]:
-        """Time-dependent one-to-many shortest travel time (FIFO network)."""
+                    want_tree: bool = False):
+        """Time-dependent one-to-many shortest travel time (FIFO network).
+
+        With want_tree=True also returns the shortest-path tree (child->parent),
+        which the matrix uses to decide which rows an incident actually
+        invalidates.
+        """
         dist = {src: 0.0}
+        prev: dict[int, int] = {}
         pq: list[tuple[float, int]] = [(0.0, src)]
         remaining = set(targets)
         remaining.discard(src)
@@ -198,10 +214,11 @@ class RoadGraph:
                 nd = d + tt
                 if nd < dist.get(v, math.inf):
                     dist[v] = nd
+                    prev[v] = u
                     heapq.heappush(pq, (nd, v))
         for t in remaining:
             out[t] = math.inf
-        return out
+        return (out, prev) if want_tree else out
 
     def path(self, src: int, dst: int, depart_t: float) -> list[int]:
         """Node path for drawing on the map."""
@@ -442,6 +459,55 @@ def load_or_fetch(cache_path: str, bbox: tuple[float, float, float, float]) -> R
     os.makedirs(os.path.dirname(cache_path) or ".", exist_ok=True)
     g.to_json(cache_path)
     return g
+
+
+def subgraph_around(g: RoadGraph, keep: list[int], margin_m: float = 900.0) -> RoadGraph:
+    """Prune to the service area: the bounding box of `keep` plus a margin.
+
+    You do not need city-wide roads to deliver inside one zone. Routing over
+    them is what made a 31-stop matrix rebuild take 4.4 s. The margin exists so
+    detours around a closure can still leave the box.
+
+    Keeps the largest strongly-connected component of the result, and verifies
+    every node in `keep` survived -- if any did not, the caller gets the full
+    graph back rather than a silently broken instance.
+    """
+    import networkx as nx
+
+    pts = [g.nodes[n] for n in keep if n in g.nodes]
+    if not pts:
+        return g
+    dlat = margin_m / 111_320.0
+    mid = sum(p[0] for p in pts) / len(pts)
+    dlon = margin_m / (111_320.0 * max(0.1, math.cos(math.radians(mid))))
+    s = min(p[0] for p in pts) - dlat
+    n_ = max(p[0] for p in pts) + dlat
+    w = min(p[1] for p in pts) - dlon
+    e = max(p[1] for p in pts) + dlon
+
+    inside = {nid for nid, (la, lo) in g.nodes.items()
+              if s <= la <= n_ and w <= lo <= e}
+    if not set(keep) <= inside:
+        return g
+
+    G = nx.DiGraph()
+    for u in inside:
+        for (v, L, spd, _k) in g.adj.get(u, ()):
+            if v in inside:
+                G.add_edge(u, v, L=L, s=spd)
+    if G.number_of_nodes() == 0:
+        return g
+    comp = max(nx.strongly_connected_components(G), key=len)
+    if not set(keep) <= comp:
+        return g
+
+    h = RoadGraph()
+    h.nodes = {n: g.nodes[n] for n in comp}
+    for u in comp:
+        for (v, L, spd, _k) in g.adj.get(u, ()):
+            if v in comp:
+                h.add_edge(u, v, L, spd)
+    return h
 
 
 def synthetic_grid(rows: int = 22, cols: int = 22,

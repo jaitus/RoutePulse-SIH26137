@@ -52,7 +52,8 @@ def _boot(n_customers: int = 30, n_vehicles: int = 5, seed: int = 7) -> dict:
     lon0 = sum(lo for _, _, lo in nodes) / len(nodes)
     depot = g.nearest_node(lat0, lon0)
     inst = random_instance(depot, nodes, n_customers=n_customers,
-                           n_vehicles=n_vehicles, capacity=110, seed=seed)
+                           n_vehicles=n_vehicles, capacity=110, seed=seed,
+                           depot_lat=g.nodes[depot][0], depot_lon=g.nodes[depot][1])
     eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=3)
     STATE.update({"engine": eng, "graph": g, "inst": inst, "events": [],
                   "last": None, "source": src})

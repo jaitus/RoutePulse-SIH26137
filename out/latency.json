@@ -1,0 +1,63 @@
+{
+ "graph": "OpenStreetMap Bengaluru (simplified), 6,420 junctions",
+ "config": {
+  "trials": 10,
+  "stops": 30,
+  "vehicles": 5,
+  "budget": 0.35
+ },
+ "modes": {
+  "operational (QPSO only)": {
+   "total_p50": 434.41,
+   "total_p95": 480.94,
+   "total_max": 480.94,
+   "meets_500ms": true,
+   "stages_p95": {
+    "freeze_commitments": 0.02,
+    "fifo_assert": 4.51,
+    "matrix_rebuild": 117.93,
+    "evaluate_incumbent": 0.28,
+    "solve": 358.18,
+    "acceptance": 0.02
+   },
+   "raw_totals": [
+    424.77,
+    431.92,
+    434.41,
+    441.03,
+    434.0,
+    438.29,
+    433.4,
+    442.0,
+    480.94,
+    436.1
+   ]
+  },
+  "demo (3-engine race)": {
+   "total_p50": 859.41,
+   "total_p95": 963.33,
+   "total_max": 963.33,
+   "meets_500ms": false,
+   "stages_p95": {
+    "freeze_commitments": 0.01,
+    "fifo_assert": 4.36,
+    "matrix_rebuild": 104.08,
+    "evaluate_incumbent": 0.23,
+    "solve": 890.37,
+    "acceptance": 0.06
+   },
+   "raw_totals": [
+    963.33,
+    825.45,
+    848.73,
+    886.69,
+    837.31,
+    859.41,
+    836.01,
+    915.53,
+    868.07,
+    869.4
+   ]
+  }
+ }
+}

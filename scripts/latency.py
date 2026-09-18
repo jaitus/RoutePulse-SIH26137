@@ -75,7 +75,8 @@ def main() -> None:
         stages: dict[str, list[float]] = {}
         for t in range(args.trials):
             inst = random_instance(depot, nodes, n_customers=args.stops,
-                                   n_vehicles=args.vehicles, capacity=110, seed=t)
+                                   n_vehicles=args.vehicles, capacity=110, seed=t,
+                                   depot_lat=g.nodes[depot][0], depot_lon=g.nodes[depot][1])
             eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=3)
             eng.initial_plan(budget=0.8, seed=t)
             # inject an incident near a random served stop

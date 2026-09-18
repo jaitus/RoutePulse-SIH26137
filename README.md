@@ -78,67 +78,71 @@ large explores, small exploits.
 
 ## Measured results — including the ones that do not flatter us
 
-**Real OpenStreetMap Bengaluru network** (6,420 junctions), **12 seeds**,
-30 customers, 5 vehicles, 350 ms budget, identical instance and matrix per seed,
-every plan re-scored by one official evaluation function. Lower is better.
-Raw data: `out/bench_real_12seed.json`.
+**Real OpenStreetMap Bengaluru network** (6,420 junctions), zone-constrained
+instances, **20 seeds**, 30 customers, 5 vehicles, 350 ms budget, identical
+instance and matrix per seed, every plan re-scored by one official evaluation
+function. Lower is better. Raw data: `out/bench_final.json`.
 
 | Arm | Mean | sd | Best | vs greedy+LS | Wilcoxon *p* |
 |---|---:|---:|---:|---:|---:|
-| Greedy construction only | 8,605 | 601 | 7,474 | −27.0% | 0.0005 ✓ |
-| Greedy + local search (no swarm) | 6,778 | 590 | 5,967 | — | reference |
-| **QPSO + LS, warm start** | 6,751 | 688 | 5,967 | +0.4% | **0.375 ✗** |
-| QPSO + LS, cold start | 6,820 | 615 | 5,661 | −0.6% | **0.910 ✗** |
-| Random-restart + LS (no swarm pull) | 6,706 | 733 | 5,765 | +1.1% | **0.297 ✗** |
-| QPSO, local search OFF | 8,590 | 586 | 7,474 | −26.7% | 0.0005 ✓ |
-| OR-Tools (same matrix, same budget) | **5,749** | 497 | 4,802 | +15.2% | 0.0005 ✓ |
+| Greedy construction only | 3,827 | 394 | 3,313 | −27.0% | 0.0000 ✓ |
+| Greedy + local search (no swarm) | **3,014** | — | — | — | reference |
+| **QPSO + LS, warm start** | 3,030 | 250 | 2,655 | −0.5% | **0.807 ✗** |
+| QPSO + LS, cold start | 2,915 | 250 | 2,460 | +3.3% | **0.114 ✗** |
+| Random-restart + LS (no swarm pull) | 3,028 | 246 | 2,655 | −0.5% | **0.753 ✗** |
+| QPSO, local search OFF | 3,827 | 394 | 3,313 | −27.0% | 0.0000 ✓ |
+| OR-Tools (same matrix, same budget) | **2,598** | 235 | 2,121 | +13.8% | 0.0000 ✓ |
 
-✓ = significant at α=0.05 · ✗ = not significant · paired Wilcoxon signed-rank
-against the greedy+LS reference (the arms share instances, so a paired test is
-the correct one).
+✓ significant at α=0.05 · ✗ not significant · paired Wilcoxon signed-rank against
+the greedy+LS reference (arms share instances, so a paired test is the correct
+one).
 
 **Attribution**
 
 | Comparison | Contribution | Significant? |
 |---|---:|---|
-| Improvement layer (D → A) | **+21.4%** | yes |
-| Warm start (A0 → A) | +1.0% | no |
-| **Swarm update rule (B → A)** | **−0.7%** | no |
-| vs OR-Tools | −17.5% | yes |
+| Improvement layer (D → A) | **+20.8%** | **yes** (p < 0.0001) |
+| **Swarm update rule (B → A)** | **−0.1%** | **no** (p = 0.75) |
+| Warm start (A0 → A) | −3.9% | no (p = 0.11) |
+| vs OR-Tools | −16.6% | yes (p < 0.0001) |
 
 ### What these numbers actually say
 
 **1. The swarm layer produces no statistically significant improvement.**
-QPSO+LS vs greedy+LS is **p = 0.375**. The +0.4% is noise. Random-restart with
-the identical improvement layer is statistically indistinguishable too
-(p = 0.297). What *is* significant is removing the local search (p = 0.0005,
-−21.4%).
+QPSO+LS vs greedy+LS is **p = 0.807**. Random-restart with the identical
+improvement layer is indistinguishable too (p = 0.753). What *is* significant is
+removing the local search: −20.8%, p < 0.0001.
 
-So the honest decomposition is: **the local search does essentially all the
-work, and the quantum-inspired update rule contributes nothing measurable at
-these budgets.** This is exactly the critique Sörensen (2015) makes of
-metaphor-named metaheuristics, and the ablation and the control arm were built
-specifically to detect it. The result reproduced on two different road networks.
+The honest decomposition: **the local search does essentially all the work, and
+the quantum-inspired update rule contributes nothing measurable at these
+budgets.** This is exactly the critique Sörensen (2015) makes of metaphor-named
+metaheuristics, and the control arm was built specifically to detect it.
 
-We report this because a claim we cannot defend is worth less than a negative
-result we can. QPSO remains implemented and documented — it is the required
-quantum-inspired module — but its measured contribution is stated, not assumed.
+**It has now reproduced three times** — synthetic grid, real network with
+scattered stops, and real network with zone-constrained stops — giving −0.5%,
+−0.7% and −0.1%. That consistency is what turns it from an artefact into a
+finding.
 
-**2. Warm start is graph-dependent and not significant either.** It was 11.4%
-*worse* on the synthetic grid and ~1% *better* on the real network (p = 0.91).
-On a sparse grid, seeding the swarm from greedy collapses diversity — attractor,
-`gbest` and `mbest` coincide and the well width goes to zero. Mitigated by
-seeding only a small elite. Re-planning still warm-starts for an independent
-reason the benchmark cannot see: **churn**.
+We report it because a claim we cannot defend is worth less than a negative
+result we can. QPSO remains fully implemented and documented — it is the
+required quantum-inspired module — but its contribution is *measured*, not
+assumed.
 
-**3. OR-Tools beats us on solution quality by 17.5% (p = 0.0005)** — given the
+**2. Warm start is instance-dependent and never significant.** It has come out
+11.4% worse, 1.0% better and 3.9% worse across the three configurations
+(p = 0.11 here). Seeding the whole swarm from the incumbent collapses diversity —
+attractor, `gbest` and `mbest` coincide and the well width goes to zero — so
+only a small elite is seeded. Re-planning still warm-starts for a reason the
+benchmark cannot see: **churn**.
+
+**3. OR-Tools beats us on solution quality by 16.6% (p < 0.0001)** — given the
 same matrix, budget, capacity, time windows and commitment constraints. We do
 not claim to beat the state of the art on static quality. The claim is the
 dynamic, commitment-aware recovery path with end-to-end latency accounting.
 
-> **Caveat we state rather than bury:** 12 seeds is below the 30-run protocol the
-> literature review recommends. These p-values are indicative. Run
-> `--seeds 30` before quoting them anywhere that matters.
+> **Caveat stated rather than buried:** 20 seeds is below the 30-run protocol the
+> literature review recommends. Run `--seeds 30` before quoting these anywhere
+> that matters.
 
 ### Convergence analysis
 
@@ -175,24 +179,51 @@ rebuild is *inside* this number, not excluded from it — the review above found
 that data-translation overhead, not the optimiser, dominates total turnaround in
 published work.
 
-Typical, 30 stops / 5 vehicles / 3 buckets, three engines racing:
+Real Bengaluru network, 6,420 junctions, 30 stops / 5 vehicles / 3 buckets,
+10 injected closures. `python scripts/latency.py` · raw: `out/latency.json`.
 
-```
-freeze_commitments      0.0 ms
-fifo_assert            33.1 ms
-matrix_rebuild        285.3 ms     <- the real cost, reported not hidden
-evaluate_incumbent      0.2 ms
-solve                 948.7 ms     <- three engines sequentially
-acceptance              0.0 ms
-                    ----------
-TOTAL                1267.4 ms
-```
+**Operational path** (single engine — what a dispatcher actually waits for):
 
-**Honest status:** the blueprint targeted p95 < 500 ms. The operational path
-(matrix + QPSO only, scoped rebuild) lands around **600 ms**; the 1,267 ms above
-includes the three-engine solver race, which is a demo and benchmarking feature,
-not the production path. **The 500 ms target has not been met yet** and is not
-claimed as met.
+| Stage | p50 | p95 |
+|---|---:|---:|
+| freeze commitments | 0.0 | 0.0 |
+| FIFO assert | 2.0 | 4.5 |
+| **travel-time matrix rebuild** | 78.4 | 117.9 |
+| evaluate incumbent | 0.2 | 0.3 |
+| solve | 354.5 | 358.2 |
+| acceptance | 0.0 | 0.0 |
+| **TOTAL (event → accepted plan)** | **434.4** | **480.9** |
+
+✅ **p95 = 481 ms — meets the 500 ms target.**
+
+**Demo path** (three-engine solver race) — p95 **963 ms**. Reported separately
+rather than averaged in, because they are different things and conflating them
+would flatter whichever number we chose.
+
+### How it got there — 5,287 ms → 481 ms
+
+The first honest measurement was **p95 = 5,287 ms**, over 10× the target, with a
+228-second outlier. Four fixes, in order of payoff:
+
+| Fix | Effect |
+|---|---|
+| **scipy `csgraph` Dijkstra** instead of pure-Python | matrix 4,456 → 118 ms |
+| **Zone-constrained instances** (1.4 km, as the PS describes) + service-area subgraph | 5,287 → 2,520 ms |
+| **Scoped FIFO check** — only edges carrying an overlay, not all 16,413 | 400 → 3 ms |
+| Shortest-path-tree invalidation | sound scoping for cost increases |
+
+The scipy swap is sound rather than a shortcut: **within one bucket the edge
+weights are constant by construction** — a bucket *is* a fixed departure time —
+so each bucket is an ordinary static shortest-path problem. The time-dependence
+still lives in the bucketing and interpolation. Nothing about the model changed;
+only the inner loop.
+
+> **A bug this nearly introduced:** the scipy path does not build predecessor
+> trees, so the tree-based "which rows are stale?" check returned *nothing* and
+> the matrix silently stopped rebuilding after incidents — fast, and wrong.
+> `rows_affected_by()` now returns *all* rows when trees are unavailable.
+> Slow-but-right beats fast-but-stale, and with scipy a full rebuild is ~40 ms
+> anyway.
 
 ---
 
@@ -238,7 +269,7 @@ FORMULATION.md    Deliverable 2
 - Road network is REAL (OpenStreetMap, 6,420 junctions). Delivery stops and traffic are **simulated**, not live. Free city-scale real-time traffic for an
   Indian city is not obtainable; the time-of-day profile is a plausible model,
   not a measurement.
-- p95 < 500 ms is **not yet met** on the racing path (see above).
+- p95 < 500 ms IS met on the operational path (481 ms). The 3-engine demo race is 963 ms and is reported separately.
 - The swarm update rule's measured contribution is ~0 at these budgets. QPSO is
   retained as the required quantum-inspired module and reported honestly.
 - Emergency-vehicle priority, Simulated Bifurcation and ALNS are designed in the
