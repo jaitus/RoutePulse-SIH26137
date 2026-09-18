@@ -195,7 +195,10 @@ def solve_qpso(inst: Instance, tm: TimeMatrix, w: ObjectiveWeights,
                warm_start: Solution | None = None,
                use_local_search: bool = True,
                previous: Solution | None = None,
-               record_convergence: bool = True):
+               record_convergence: bool = True,
+               restart_on_stagnation: bool = True,
+               stagnation_patience: int = 6,
+               diversity_floor: float = 0.02):
     """Returns (Solution, telemetry dict).
 
     telemetry carries the convergence history that Deliverable 5's
@@ -261,6 +264,24 @@ def solve_qpso(inst: Instance, tm: TimeMatrix, w: ObjectiveWeights,
     history: list[dict] = []
     it = 0
     evals = 0
+    # Restart bookkeeping. The convergence analysis showed gbest stops moving
+    # around iteration 8 of 41 while the swarm keeps burning budget, so the
+    # remaining two thirds of every run bought nothing. Detect that and scatter.
+    since_improve = 0
+    last_gfit = math.inf
+    restarts = 0
+
+    def _encode(sol: Solution) -> list[float]:
+        """Solution -> random-key vector, so an improved plan can be written
+        back into a particle's genotype."""
+        k = [0.5] * n
+        rank = 0
+        for r in sol.routes:
+            for cid in r.customer_ids:
+                if cid in idx_of:
+                    k[idx_of[cid]] = rank / max(1, n)
+                    rank += 1
+        return k
 
     def _record(beta_now: float) -> None:
         if not record_convergence:
@@ -329,6 +350,31 @@ def solve_qpso(inst: Instance, tm: TimeMatrix, w: ObjectiveWeights,
 
         _record(beta)
 
+        # ---- restart on stagnation
+        if gfit < last_gfit - 1e-9:
+            last_gfit = gfit
+            since_improve = 0
+        else:
+            since_improve += 1
+
+        if restart_on_stagnation and history:
+            div_now = history[-1]["diversity"]
+            if since_improve >= stagnation_patience or div_now < diversity_floor:
+                # Keep the elite, scatter everyone else. Personal bests are
+                # cleared for the scattered particles so they do not drag the
+                # mean-best straight back to the collapsed region -- otherwise
+                # the "restart" is cosmetic and mbest never moves.
+                keep = max(1, swarm // 6)
+                order = sorted(range(swarm), key=lambda i: pfit[i])
+                for rank, i in enumerate(order):
+                    if rank < keep:
+                        continue
+                    X[i] = [rng.random() for _ in range(n)]
+                    pbest[i] = list(X[i])
+                    pfit[i] = math.inf
+                since_improve = 0
+                restarts += 1
+
         # ---- MEMETIC step: improve the incumbent best each generation and
         # re-inject it into the swarm. Running local search only once at the
         # very end (the previous design) means the swarm is competing against
@@ -343,18 +389,34 @@ def solve_qpso(inst: Instance, tm: TimeMatrix, w: ObjectiveWeights,
                                  else w.lambda_search_penalty * len(cand.violations))
             if cfit < gfit:
                 gfit, gsol = cfit, cand
-                # re-encode the improved solution back into a random key vector
-                newk = [0.5] * n
-                rank = 0
-                for r in cand.routes:
-                    for cid in r.customer_ids:
-                        if cid in idx_of:
-                            newk[idx_of[cid]] = rank / max(1, n)
-                            rank += 1
-                gbest = newk
+                gbest = _encode(cand)
                 worst = max(range(swarm), key=lambda i: pfit[i])
-                X[worst] = list(newk)
-                pbest[worst], pfit[worst] = list(newk), cfit
+                X[worst] = list(gbest)
+                pbest[worst], pfit[worst] = list(gbest), cfit
+
+        # ---- LAMARCKIAN step: improve ONE particle in place per generation,
+        # rotating through the swarm.
+        #
+        # Why this exists: particles are evaluated RAW while gbest is always a
+        # local-search output. Measured, a raw random-key decode scores ~1.7x
+        # worse than an LS-improved solution (mean pbest ~4,400 vs gbest 2,655),
+        # so no particle can ever displace gbest and the swarm is structurally
+        # unable to contribute -- restarts included. Improving particles in
+        # place lets them compete on the same footing, which is what a memetic
+        # algorithm is for.
+        if use_local_search and time.perf_counter() < deadline:
+            i = it % swarm
+            cand_sol = keys_to_solution(inst, tm, w, X[i], cust_ids, frozen)
+            slice_end = min(deadline, time.perf_counter() + time_budget * 0.06)
+            imp = local_search(inst, cand_sol, tm, w, slice_end, max_passes=1)
+            imp = score(inst, imp, tm, w, previous)
+            ifit = imp.score + (0.0 if imp.feasible
+                                else w.lambda_search_penalty * len(imp.violations))
+            if ifit < pfit[i]:
+                X[i] = _encode(imp)              # Lamarckian: genotype updated
+                pbest[i], pfit[i] = list(X[i]), ifit
+            if ifit < gfit:
+                gfit, gsol, gbest = ifit, imp, list(X[i])
 
     if gsol is None:
         _, gsol = eval_keys(X[0])
@@ -377,6 +439,7 @@ def solve_qpso(inst: Instance, tm: TimeMatrix, w: ObjectiveWeights,
         "beta_lo": beta_lo,
         "time_budget_s": time_budget,
         "elapsed_s": round(time.perf_counter() - t_start, 4),
+        "restarts": restarts,
         "convergence": history,
     }
     return gsol, telemetry

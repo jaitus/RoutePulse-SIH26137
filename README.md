@@ -31,7 +31,7 @@ Bengaluru graph is absent — the demo cannot be killed by venue Wi-Fi.
 Benchmark + ablation:
 
 ```bash
-python scripts/bench.py --seeds 10 --budget 0.35
+python scripts/bench.py --seeds 30 --budget 0.35     # the recommended protocol
 ```
 
 ---
@@ -79,70 +79,74 @@ large explores, small exploits.
 ## Measured results — including the ones that do not flatter us
 
 **Real OpenStreetMap Bengaluru network** (6,420 junctions), zone-constrained
-instances, **20 seeds**, 30 customers, 5 vehicles, 350 ms budget, identical
-instance and matrix per seed, every plan re-scored by one official evaluation
-function. Lower is better. Raw data: `out/bench_final.json`.
+instances, **30 seeds** — the full protocol the literature review recommends —
+30 customers, 5 vehicles, 350 ms budget, identical instance and matrix per seed,
+every plan re-scored by one official evaluation function. Lower is better.
+Raw data: `out/bench_30seed.json`.
 
 | Arm | Mean | sd | Best | vs greedy+LS | Wilcoxon *p* |
 |---|---:|---:|---:|---:|---:|
-| Greedy construction only | 3,827 | 394 | 3,313 | −27.0% | 0.0000 ✓ |
-| Greedy + local search (no swarm) | **3,014** | — | — | — | reference |
-| **QPSO + LS, warm start** | 3,030 | 250 | 2,655 | −0.5% | **0.807 ✗** |
-| QPSO + LS, cold start | 2,915 | 250 | 2,460 | +3.3% | **0.114 ✗** |
-| Random-restart + LS (no swarm pull) | 3,028 | 246 | 2,655 | −0.5% | **0.753 ✗** |
-| QPSO, local search OFF | 3,827 | 394 | 3,313 | −27.0% | 0.0000 ✓ |
-| OR-Tools (same matrix, same budget) | **2,598** | 235 | 2,121 | +13.8% | 0.0000 ✓ |
+| Greedy construction only | 3,786 | 377 | 3,044 | −28.8% | 0.0000 ✓ |
+| Greedy + local search (no swarm) | 2,939 | 286 | 2,177 | — | reference |
+| **QPSO + LS, warm start** | **2,885** | 274 | 2,177 | **+1.9%** | **0.334 ✗** |
+| QPSO + LS, cold start | 2,893 | 232 | 2,459 | +1.6% | 0.339 ✗ |
+| Random-restart + LS (no swarm pull) | 2,912 | 278 | 2,177 | +0.9% | 0.689 ✗ |
+| QPSO, local search OFF | 3,778 | 370 | 3,044 | −28.5% | 0.0000 ✓ |
+| OR-Tools (same matrix, same budget) | **2,570** | 221 | 2,121 | +12.6% | 0.0000 ✓ |
 
 ✓ significant at α=0.05 · ✗ not significant · paired Wilcoxon signed-rank against
-the greedy+LS reference (arms share instances, so a paired test is the correct
-one).
+the greedy+LS reference (arms share instances, so paired is the correct test).
 
 **Attribution**
 
 | Comparison | Contribution | Significant? |
 |---|---:|---|
-| Improvement layer (D → A) | **+20.8%** | **yes** (p < 0.0001) |
-| **Swarm update rule (B → A)** | **−0.1%** | **no** (p = 0.75) |
-| Warm start (A0 → A) | −3.9% | no (p = 0.11) |
-| vs OR-Tools | −16.6% | yes (p < 0.0001) |
+| Improvement layer (D → A) | **+23.6%** | **yes** (p < 0.0001) |
+| Swarm layer overall (E → A) | +1.9% | no (p = 0.33) |
+| **Swarm update rule (B → A)** | **+0.9%** | **no** (p = 0.69) |
+| Warm start (A0 → A) | +0.3% | no (p = 0.34) |
+| vs OR-Tools | −12.6% | yes (p < 0.0001) |
 
 ### What these numbers actually say
 
-**1. The swarm layer produces no statistically significant improvement.**
-QPSO+LS vs greedy+LS is **p = 0.807**. Random-restart with the identical
-improvement layer is indistinguishable too (p = 0.753). What *is* significant is
-removing the local search: −20.8%, p < 0.0001.
+**1. The local search does the work; the swarm does not clear significance.**
+Removing local search costs **23.6%** (p < 0.0001). The swarm layer as a whole
+is worth **+1.9%** and does not reach significance at 30 seeds (p = 0.33); the
+quantum update rule specifically is **+0.9%** against a random-restart control
+using the identical improvement layer (p = 0.69).
 
-The honest decomposition: **the local search does essentially all the work, and
-the quantum-inspired update rule contributes nothing measurable at these
-budgets.** This is exactly the critique Sörensen (2015) makes of metaphor-named
+This is exactly the critique Sörensen (2015) makes of metaphor-named
 metaheuristics, and the control arm was built specifically to detect it.
 
-**It has now reproduced three times** — synthetic grid, real network with
-scattered stops, and real network with zone-constrained stops — giving −0.5%,
-−0.7% and −0.1%. That consistency is what turns it from an artefact into a
-finding.
+**2. We diagnosed *why*, fixed the structure, and it improved — but not enough.**
+The first measurements had the swarm at −0.5%. Tracing the convergence showed the
+cause, and it is a property of the *encoding*, not the metaheuristic:
 
-We report it because a claim we cannot defend is worth less than a negative
-result we can. QPSO remains fully implemented and documented — it is the
-required quantum-inspired module — but its contribution is *measured*, not
-assumed.
+> `gbest` was maintained as a local-search output while particles were scored
+> **raw**. A raw random-key decode measures ~1.7× worse than its own refined form
+> (mean particle ≈ 4,400 vs gbest 2,655), so **no particle could ever displace
+> the incumbent** — the swarm was structurally unable to contribute regardless of
+> its update rule or diversity.
 
-**2. Warm start is instance-dependent and never significant.** It has come out
-11.4% worse, 1.0% better and 3.9% worse across the three configurations
-(p = 0.11 here). Seeding the whole swarm from the incumbent collapses diversity —
-attractor, `gbest` and `mbest` coincide and the well width goes to zero — so
-only a small elite is seeded. Re-planning still warm-starts for a reason the
-benchmark cannot see: **churn**.
+Confirmed directly: a diversity-triggered restart fires 2–3 times per run,
+measurably re-diversifies the swarm (0.12 → 0.20), and changed the final
+objective by **exactly zero**.
 
-**3. OR-Tools beats us on solution quality by 16.6% (p < 0.0001)** — given the
+The fix was to score like with like — a **Lamarckian step** that improves one
+particle in place per generation and rewrites its genotype, so particles and
+incumbent live in the same space. That moved the swarm contribution from −0.5%
+to **+1.9%**. Real, reproducible, and still not significant.
+
+**3. OR-Tools beats us on solution quality by 12.6% (p < 0.0001)** — given the
 same matrix, budget, capacity, time windows and commitment constraints. We do
 not claim to beat the state of the art on static quality. The claim is the
 dynamic, commitment-aware recovery path with end-to-end latency accounting.
 
-> **Caveat stated rather than buried:** 20 seeds is below the 30-run protocol the
-> literature review recommends. Run `--seeds 30` before quoting these anywhere
-> that matters.
+> **What we would tell the panel:** the honest headline is not "our quantum-inspired
+> solver wins". It is *"we built the experiment that could prove it didn't, ran it
+> at the recommended protocol, found the structural reason, fixed it, and the
+> effect is still inside the noise."* That is a result. The alternative — a
+> confident 3% claim from 5 unpaired runs — is not.
 
 ### Convergence analysis
 
@@ -270,8 +274,9 @@ FORMULATION.md    Deliverable 2
   Indian city is not obtainable; the time-of-day profile is a plausible model,
   not a measurement.
 - p95 < 500 ms IS met on the operational path (481 ms). The 3-engine demo race is 963 ms and is reported separately.
-- The swarm update rule's measured contribution is ~0 at these budgets. QPSO is
-  retained as the required quantum-inspired module and reported honestly.
+- The swarm layer's measured contribution is +1.9% and does NOT reach
+  significance at 30 seeds (p = 0.33). QPSO is retained as the required
+  quantum-inspired module and its contribution is reported, not assumed.
 - Emergency-vehicle priority, Simulated Bifurcation and ALNS are designed in the
   blueprint but **not implemented** in this prototype.
 - "Quantum-inspired" means classical. No quantum hardware, no quantum speedup.
