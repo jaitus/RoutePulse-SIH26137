@@ -24,8 +24,10 @@ warm, then press *Reset*. The first build is a cold 900 ms; every later one is
 **1. "This is a Bengaluru delivery fleet — 30 stops, 5 vehicles, real road graph."**
 Press **Plan routes**. Routes draw themselves onto the map. Point at the left
 rail: per-vehicle load bars, and *two vehicles idle* — the optimiser decided it
-did not need them. Point at the KPI capsules: fleet travel, makespan, vehicles
-used, and **VALID** on the feasibility gate.
+did not need them. Point at the band above the map: fleet travel, makespan,
+stops on time, vehicles used, and **VALID** on the feasibility gate. Bottom
+right is the drawing title block — network, scale, zoom, revision count — the
+same stamp any engineering sheet carries.
 
 **2. "Now a road closes."**
 ⚠️ **Click directly ON a coloured route line**, not empty space — otherwise the

@@ -3,130 +3,143 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RoutePulse — SIH26137 Control Tower</title>
+<title>RoutePulse — SIH26137 Control Sheet</title>
 <link rel="stylesheet" href="/static/app.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 9h3l2-6 3 12 2-7h4' fill='none' stroke='%235b9cff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23faf7f2'/%3E%3Cpath d='M2 11h3l2.2-6.5L9.5 13 11.5 7H14' fill='none' stroke='%23e2511e' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand">
-    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M1 9h3l2-6 3 12 2-7h4" fill="none" stroke="#5b9cff"
-            stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <h1>RoutePulse</h1>
-    <span class="sub">SIH26137 · Quantum-Inspired Route Optimization</span>
-  </div>
+<header class="masthead">
+  <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M2 11h3l2.2-6.5L9.5 13 11.5 7H14" fill="none" stroke="#e2511e"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <h1>RoutePulse</h1>
+  <span class="plate">Sheet 01 · SIH26137</span>
+  <span class="sub">Quantum-Inspired Route Optimization · Egreen Quanta</span>
 
   <nav class="modes" role="tablist" aria-label="View">
     <button role="tab" id="tabOps" aria-selected="true" aria-controls="ops">Operations</button>
     <button role="tab" id="tabEvidence" aria-selected="false" aria-controls="evidence">Evidence</button>
   </nav>
 
-  <div class="netstat"><span class="dot" id="statDot"></span><span id="statText">connecting…</span></div>
+  <div class="status"><span class="lamp" id="lamp"></span><span id="statusText">connecting…</span></div>
 </header>
 
 <!-- ======================================================== OPERATIONS -->
 <main id="ops" class="view on" role="tabpanel" aria-labelledby="tabOps">
 
   <aside class="rail">
-    <div class="eyebrow">Fleet</div>
-    <div id="fleet"></div>
-
-    <div class="eyebrow">Network</div>
-    <div id="netmeta"></div>
-
-    <div class="eyebrow">Energy cost of the last solve</div>
-    <div id="energy"></div>
+    <section>
+      <span class="rubric">Fleet</span>
+      <div id="fleet"></div>
+    </section>
+    <section>
+      <span class="rubric">Network</span>
+      <div id="netmeta"></div>
+    </section>
+    <section>
+      <span class="rubric">Energy · last solve</span>
+      <div id="energy"></div>
+    </section>
   </aside>
 
-  <section class="stage">
+  <div class="band" id="band"></div>
+
+  <section class="sheet">
     <canvas id="map"></canvas>
 
-    <div class="hud hud-tl">
-      <div class="card controls">
+    <div class="block blk-tl">
+      <div class="hd"><span class="rubric">Control</span></div>
+      <div class="bd">
         <div class="btnrow">
           <button class="act primary" id="btnPlan">Plan routes</button>
-          <button class="act ghost" id="btnReset" title="Rebuild the instance from scratch">Reset</button>
+          <button class="act slim" id="btnReset" title="Rebuild the instance">Reset</button>
         </div>
         <div class="seg" id="modeSeg">
           <label><input type="radio" name="ev" value="closure" checked>
-            <span><i class="swatch" id="sw-closure"></i>Closure</span></label>
+            <span><i class="key" id="k-closure"></i>Closure</span></label>
           <label><input type="radio" name="ev" value="congestion">
-            <span><i class="swatch" id="sw-congestion"></i>Jam</span></label>
+            <span><i class="key" id="k-congestion"></i>Jam</span></label>
           <label><input type="radio" name="ev" value="ambulance">
-            <span><i class="swatch" id="sw-ambulance"></i>Ambulance</span></label>
+            <span><i class="key" id="k-ambulance"></i>Amb</span></label>
         </div>
-        <button class="act" id="btnReplan" disabled>Re-plan under the new costs</button>
-        <div class="hint" id="hint">Plan first. Then click <b>on a route line</b> to
-          inject an incident there — clicking empty space is a correct no-op.</div>
+        <div class="btnrow gap-t">
+          <button class="act" id="btnReplan" disabled>Re-plan under new costs</button>
+        </div>
+        <div class="hint" id="hint">Plan first, then click <b>on a route line</b>
+          to break it. Clicking empty road is a correct no-op.</div>
       </div>
     </div>
 
-    <div class="hud hud-tr"><div class="kpis" id="kpis"></div></div>
-
-    <div class="hud hud-bl">
-      <div class="card legend">
-        <span><i id="lg-route"></i>planned route</span>
-        <span><i id="lg-closed"></i>closed road</span>
-        <span><i id="lg-jam"></i>congested</span>
-        <span><i id="lg-corridor"></i>green corridor</span>
-        <span><i class="sq" id="lg-depot"></i>depot</span>
-        <span><i class="sq" id="lg-prio"></i>priority stop</span>
-      </div>
+    <div class="block blk-bl">
+      <div class="hd"><span class="rubric">Legend</span></div>
+      <div class="bd"><div class="legend" id="legend"></div></div>
     </div>
 
-    <div class="hud hud-br"><div class="card scalebar" id="scalebar"></div></div>
+    <div class="block blk-br titleblock">
+      <div class="hd"><span class="rubric">Sheet data</span></div>
+      <div class="bd" id="titleblock"></div>
+    </div>
 
     <div class="scrim" id="scrim">
-      <div class="box"><span class="spin"></span><span id="scrimText">solving…</span></div>
+      <div class="box">
+        <span class="bars3"><i></i><i></i><i></i></span>
+        <span id="scrimText">solving…</span>
+      </div>
     </div>
   </section>
 
-  <aside class="inspector">
-    <div class="eyebrow">Acceptance decision</div>
-    <div class="verdict idle" id="verdict">
-      <div class="tag">Standing by</div>
-      <div class="body">No re-plan has run. The incumbent plan is unchanged.</div>
-    </div>
-    <ul class="why" id="why"></ul>
+  <aside class="drawer">
+    <section>
+      <span class="rubric">Acceptance decision</span>
+      <div class="verdict idle" id="verdict">
+        <div class="stamp">Standing by</div>
+        <div class="why">No re-plan has run. The incumbent plan is unchanged.</div>
+      </div>
+      <ul class="reasons" id="reasons"></ul>
+    </section>
 
-    <div id="emsWrap" hidden>
-      <div class="eyebrow">Emergency dispatch</div>
+    <section id="emsSection" hidden>
+      <span class="rubric">Emergency dispatch</span>
       <div class="ems" id="ems"></div>
-    </div>
+    </section>
 
-    <div class="eyebrow">End-to-end latency · event → accepted plan</div>
-    <div class="wf" id="latency"><div class="hint">Measured on the next re-plan,
-      stage by stage.</div></div>
-    <div class="note">The travel-time matrix rebuild is <b>inside</b> this number.
-      A 2025 systematic review of this field found no published study reports
-      end-to-end timing at all.</div>
+    <section>
+      <span class="rubric">Latency · event to accepted plan</span>
+      <div class="wf" id="latency"></div>
+      <div class="footnote" id="latencyNote">Measured on the next re-plan, stage
+        by stage. The travel-time matrix rebuild is <b>inside</b> the total.</div>
+    </section>
 
-    <div class="eyebrow">Solver race · one instance, one budget, one scorer</div>
-    <table class="data" id="race"></table>
-    <div class="note" id="raceNote">Four engines solve the same instance under
-      the same deadline and every plan is re-scored by one official evaluation
-      function. Feasibility is a hard gate, never a penalty weight.</div>
+    <section>
+      <span class="rubric">Solver race</span>
+      <table class="data" id="race"></table>
+      <div class="footnote" id="raceNote">Four engines, one instance, one
+        deadline, and every plan re-scored by <b>one</b> evaluation function.
+        Feasibility is a hard gate, never a penalty weight.</div>
+    </section>
 
-    <div class="eyebrow">QPSO convergence</div>
-    <canvas id="conv"></canvas>
-    <div class="legend" id="convLegend"></div>
+    <section>
+      <span class="rubric">QPSO convergence</span>
+      <canvas id="conv"></canvas>
+      <div class="legend" id="convLegend"></div>
+    </section>
   </aside>
 
   <footer class="timeline">
-    <header><h2>Event timeline</h2><span class="count" id="evCount"></span></header>
-    <div class="track-scroll"><div class="track-rail" id="track"></div></div>
+    <div class="hd"><span class="rubric">Event log</span>
+      <span class="count" id="evCount"></span></div>
+    <div class="strip"><div class="rail-line" id="track"></div></div>
   </footer>
 </main>
 
 <!-- ========================================================== EVIDENCE -->
 <main id="evidence" class="view" role="tabpanel" aria-labelledby="tabEvidence">
-  <div class="ev-wrap" id="evidenceBody"></div>
+  <div class="report" id="report"></div>
 </main>
 
-<div class="toast" id="toast"></div>
+<div class="toasts" id="toasts"></div>
 
 <script src="/static/app.js"></script>
 </body>

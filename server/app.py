@@ -197,11 +197,13 @@ def _routes_payload() -> list[dict]:
     inst = STATE["inst"]
     cust = {c.id: c for c in inst.customers}
     out = []
-    # Route colours deliberately avoid red, amber and green. Those three are
-    # reserved for meaning -- closed road, congestion, green corridor -- and a
-    # red ROUTE next to a red CLOSURE is a legend nobody can read at a glance.
-    palette = ["#4f8cff", "#9b7cf0", "#38b5c4", "#6f8fd6", "#c08bff",
-               "#4dd0c0", "#8aa4ff", "#b39ddb"]
+    # Transit-diagram route colours, picked for a PAPER ground: saturated
+    # enough to read as ink, dark enough to hold against a cream background.
+    # They deliberately avoid red, amber and green -- those three are reserved
+    # for meaning (closed road, congestion, green corridor), and a red ROUTE
+    # beside a red CLOSURE is a legend nobody can read at a glance.
+    palette = ["#1a5fb4", "#7b2d8e", "#00807a", "#4a3fb5", "#8a5a2b",
+               "#b0117a", "#2b6d8f", "#5c6f00"]
     for i, r in enumerate(sol.routes):
         if not r.customer_ids:
             continue
