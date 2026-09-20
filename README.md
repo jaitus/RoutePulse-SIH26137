@@ -23,15 +23,29 @@ Open <http://127.0.0.1:8000>.
 
 The console has two modes:
 
-- **Operations** — the live map. *Plan routes*, pick an incident type, click on a
-  coloured route line, then *Re-plan*. Left rail is the fleet, right drawer is
-  the acceptance decision, latency waterfall and solver race, bottom strip is the
-  event timeline. Scroll to zoom, drag to pan, hover a stop for its ETA.
+- **Operations** — the live map, drawn as a transport authority's plan sheet:
+  warm paper, a pale street network, flat transit-diagram route colours, and a
+  drawing title block in the corner carrying the network, scale, zoom and
+  revision count. *Plan routes*, pick an incident type, click on a coloured
+  route line, then *Re-plan*. Left rail is the fleet, the band above the map is
+  the KPI strip, the right drawer is the acceptance decision with the latency
+  waterfall and solver race, and the bottom strip is the event timeline. Scroll
+  to zoom, drag to pan, hover a stop for its ETA.
+
+  Semantics are carried by pattern as well as hue, so the sheet survives a bad
+  projector: a closed road is a barrier line with a cross tick, congestion is a
+  marching dashed line, a green corridor is a double line, a delivery stop is a
+  white-centred station marker, and the depot is a solid black square.
 - **Evidence** — the measured record: the 30-seed ablation with significance
   tests, both adoption gates, convergence, latency percentiles, the Simulated
   Bifurcation study, the S1–S9 scenario suite, energy accounting, and a blunt
-  list of what the system is not. Keyboard: `1` and `2` switch modes, `p` plans,
-  `r` re-plans.
+  list of what the system is not — laid out as a report, with numbered sections,
+  an issue block and ruled tables. Keyboard: `1` and `2` switch modes, `p`
+  plans, `r` re-plans.
+
+Both views carry a real print stylesheet. Ctrl+P produces a usable hard copy,
+because the whole design is a printed sheet and a judge who asks for one should
+get something that works.
 
 **No internet required.** No CDN, no map tiles, no external JS, no web fonts.
 The road network is drawn on a canvas from our own API and a synthetic grid is
