@@ -9,8 +9,8 @@
    "detail": [
     "edges closed: 108 (denominator: this is what was exercised)",
     "incumbent feasible under new costs: True",
-    "case: CASE 1: rejected, only 0.0% better (< 1% threshold) - not worth the churn",
-    "end-to-end: 435 ms"
+    "case: CASE 1: accepted, 11.8% better than incumbent",
+    "end-to-end: 463 ms"
    ]
   },
   {
@@ -20,8 +20,8 @@
    "exercised": true,
    "detail": [
     "edges congested x6: 861",
-    "stops reassigned: 6 of 30",
-    "case: CASE 1: accepted, 11.8% better than incumbent"
+    "stops reassigned: 0 of 30",
+    "case: CASE 1: rejected, only 0.9% better (< 1% threshold) - not worth the churn"
    ]
   },
   {
@@ -40,7 +40,7 @@
    "pass": true,
    "exercised": true,
    "detail": [
-    "vehicle 0 removed from service, released 11 stops",
+    "vehicle 0 removed from service, released 10 stops",
     "fleet now 4 vehicles",
     "stops still served: 30 of 30",
     "plan valid after reassignment: True",
@@ -54,8 +54,8 @@
    "exercised": true,
    "detail": [
     "incidents injected: 4, edges closed total: 259",
-    "latencies: [443, 439, 432, 435] ms",
-    "p95: 439 ms (budget 500 ms)"
+    "latencies: [442, 453, 453, 458] ms",
+    "p95: 453 ms (budget 500 ms)"
    ]
   },
   {
@@ -89,9 +89,9 @@
     "unit AMB-1 -> Receiving Hospital 1",
     "ambulance: 7.1 min vs 11.9 min without priority = 4.8 min SAVED",
     "corridor: 112 edges, window 0.0-25.0 min",
-    "COST OF PRIORITY to the fleet: +345.7 (3030.2 -> 3375.9)",
-    "emergency path latency: 66.9 ms (budget 200 ms)",
-    "fleet re-plan: 443 ms, CASE 1: accepted, 1.4% better than incumbent"
+    "COST OF PRIORITY to the fleet: +333.1 (2399.9 -> 2733.0)",
+    "emergency path latency: 68.0 ms (budget 200 ms)",
+    "fleet re-plan: 462 ms, CASE 1: rejected, only 0.7% better (< 1% threshold) - not worth the churn"
    ]
   },
   {

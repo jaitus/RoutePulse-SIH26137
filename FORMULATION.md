@@ -274,3 +274,108 @@ fair:
 
 Only with (2) do particles and incumbent live in the same space, and only then
 does the swarm produce any measurable effect.
+
+---
+
+## 11. The Ising formulation — Deliverable 3's other engine
+
+QPSO borrows a metaphor. Simulated Bifurcation borrows the equations of motion
+of a physical machine, and to use it the routing problem has to be written as an
+Ising Hamiltonian. That reduction is stated here because it is where the
+interesting constraints of quantum-derived optimisation actually bite.
+
+### 11.1 The target form
+
+A classical Ising machine minimises
+
+$$
+E(\mathbf{s}) \;=\; \tfrac{1}{2}\,\mathbf{s}^{\top} J \mathbf{s} \;+\;
+\mathbf{h}^{\top}\mathbf{s},
+\qquad s_v \in \{-1,+1\},\quad J = J^{\top},\; J_{vv} = 0 .
+$$
+
+Everything the problem knows must live in $J$ and $\mathbf{h}$. There is no
+other channel.
+
+### 11.2 Sequencing one route
+
+Fix a vehicle's assigned set of $m$ stops, an origin $o$ (the depot, or the
+committed stop if one is frozen) and the depot return. Introduce the standard
+position-indexed binaries (Lucas 2014, §7.2)
+
+$$
+x_{i,p} = 1 \iff \text{stop } i \text{ is served } p\text{-th},
+\qquad i,p \in \{0,\dots,m-1\},
+$$
+
+giving $N = m^2$ spins. Then
+
+$$
+H \;=\;
+\underbrace{A\sum_{i}\Big(1-\sum_{p} x_{i,p}\Big)^{2}
+          + A\sum_{p}\Big(1-\sum_{i} x_{i,p}\Big)^{2}}_{\text{assignment constraints}}
+\;+\;
+\underbrace{\sum_{p=0}^{m-2}\sum_{i \neq j} d_{ij}\,x_{i,p}x_{j,p+1}
+          + \sum_i d_{o i}\,x_{i,0}
+          + \sum_i d_{i\,\text{depot}}\,x_{i,m-1}}_{\text{tour cost}}
+\;+\;
+\underbrace{\sum_{i,p} c_{i,p}\, x_{i,p}}_{\text{position field, §11.4}} .
+$$
+
+$d$ may be asymmetric — the pair $\{(i,p),(j,p+1)\}$ is directional by
+construction, so one-way streets survive the reduction intact. Substituting
+$x = (1+s)/2$ gives $J_{vw} = Q_{vw}/4$ and
+$h_v = q_v/2 + \tfrac14\sum_{w} Q_{vw}$.
+
+### 11.3 What the reduction costs — stated, not buried
+
+1. **Constraints become penalties.** "Serve each stop exactly once" is a hard
+   constraint in §2 of this document and a weighted term here. A relaxed
+   trajectory can therefore land on a spin configuration that is not a
+   permutation at all. Measured, as a function of $A$ expressed in units of the
+   largest leg cost: $A = 0.5\times$ yields valid tours in 4 of 20 trials;
+   $A \ge 1\times$ yields 20 of 20. The failure mode is real and the fix is
+   calibration, not assertion.
+
+2. **Time-dependence is lost.** $J$ is a constant matrix, so
+   $\tau_{ij}(t)$ cannot be written into it without spending spins on a time
+   index. We build $J$ at the route's own departure bucket and treat the result
+   as a *proposal*, re-evaluated under the full time-dependent objective of §3
+   before it can be accepted. The approximation can waste effort; it cannot
+   corrupt a plan.
+
+3. **Time windows are not expressible.** Lateness at stop $i$ depends on the
+   arrival time $a_i$, which is a sum over the whole prefix of the permutation.
+   No quadratic form in $x_{i,p}$ equals that sum. This is not an implementation
+   gap — it is a property of the reduction.
+
+### 11.4 The one degree of freedom that is left
+
+The linear field carries one coefficient per $(i,p)$ pair, and position is a
+proxy for time. So §11.3(3) can be *approximated*, though never encoded, by
+
+$$
+c_{i,p} \;=\;
+\underbrace{\beta \cdot \big[\hat a_p - e_i\big]^{+} \cdot \rho_i}_{\text{estimated lateness}}
+\;+\;
+\underbrace{\lambda\,\bar\tau\,\big|p - p^{\*}_i\big|}_{\text{deadline-order bias}},
+\qquad
+\hat a_p = t_0 + p(\bar\tau + \bar\sigma) + \bar\tau ,
+$$
+
+where $e_i$ is the window close, $\rho_i$ the priority multiplier,
+$\bar\tau$ and $\bar\sigma$ the mean leg and service times, and $p^{\*}_i$ the
+rank of stop $i$ under earliest-deadline-first. The first term is a mean-field
+estimate; the second is a bias, and calling it anything stronger would be
+dishonest.
+
+**Measured effect** (24 routes on the real network, cost of SB's chosen order
+relative to the greedy order it replaced): $\lambda = 0$ gives $+1428\%$;
+$\lambda = 0.5$ gives $+19\%$. Against the exact optimum on the routes small
+enough to enumerate, the field moves SB from $+257\%$ to $+10.8\%$ on the full
+objective, while SB sits at $+6.0\%$ on the travel-only objective it genuinely
+encodes.
+
+The conclusion that follows is in §5 of the README and it is a negative one: an
+Ising solver verified to find exact ground states is beaten by 2-opt on this
+problem, because the embedding drops the term that dominates the real cost.

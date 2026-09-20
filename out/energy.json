@@ -1,0 +1,87 @@
+{
+ "graph": "OpenStreetMap Bengaluru (simplified), 6,420 junctions",
+ "config": {
+  "trials": 12,
+  "stops": 30,
+  "vehicles": 5,
+  "budget": 0.35,
+  "out": "C:\\PROJECTS\\SIH26137\\out\\energy.json"
+ },
+ "power_source": "cpu-time-model",
+ "power_note": "on mains power, so the battery reports no discharge rate",
+ "watts_per_core_assumed": 15.0,
+ "replans_per_day": 400,
+ "arms": {
+  "operational (QPSO only)": {
+   "engines": [
+    "qpso"
+   ],
+   "mean_wall_ms": 450.01,
+   "mean_cpu_s": 0.44271,
+   "mean_mwh": 1.844618,
+   "sd_mwh": 0.080138,
+   "at_scale": {
+    "replans_per_day": 400,
+    "wh_per_day": 0.7378,
+    "kwh_per_year": 0.2693,
+    "kg_co2e_per_year": 0.1928,
+    "co2e_factor": "0.716 kg CO2e/kWh (CEA all-India grid average, 2023-24)"
+   },
+   "trials": 12
+  },
+  "emergency heuristic only": {
+   "engines": [
+    "emergency"
+   ],
+   "mean_wall_ms": 152.53,
+   "mean_cpu_s": 0.15104,
+   "mean_mwh": 0.62934,
+   "sd_mwh": 0.080138,
+   "at_scale": {
+    "replans_per_day": 400,
+    "wh_per_day": 0.2517,
+    "kwh_per_year": 0.0919,
+    "kg_co2e_per_year": 0.0658,
+    "co2e_factor": "0.716 kg CO2e/kWh (CEA all-India grid average, 2023-24)"
+   },
+   "trials": 12
+  },
+  "Traffic-Aware ALNS": {
+   "engines": [
+    "alns"
+   ],
+   "mean_wall_ms": 447.8,
+   "mean_cpu_s": 0.44531,
+   "mean_mwh": 1.855469,
+   "sd_mwh": 0.058889,
+   "at_scale": {
+    "replans_per_day": 400,
+    "wh_per_day": 0.7422,
+    "kwh_per_year": 0.2709,
+    "kg_co2e_per_year": 0.194,
+    "co2e_factor": "0.716 kg CO2e/kWh (CEA all-India grid average, 2023-24)"
+   },
+   "trials": 12
+  },
+  "demo race (4 engines)": {
+   "engines": [
+    "emergency",
+    "qpso",
+    "alns",
+    "ortools"
+   ],
+   "mean_wall_ms": 1225.55,
+   "mean_cpu_s": 1.21615,
+   "mean_mwh": 5.067274,
+   "sd_mwh": 0.126709,
+   "at_scale": {
+    "replans_per_day": 400,
+    "wh_per_day": 2.0269,
+    "kwh_per_year": 0.7398,
+    "kg_co2e_per_year": 0.5297,
+    "co2e_factor": "0.716 kg CO2e/kWh (CEA all-India grid average, 2023-24)"
+   },
+   "trials": 12
+  }
+ }
+}

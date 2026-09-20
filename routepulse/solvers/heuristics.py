@@ -143,12 +143,18 @@ def greedy_insertion(inst: Instance, tm: TimeMatrix, w: ObjectiveWeights,
 
 def local_search(inst: Instance, sol: Solution, tm: TimeMatrix,
                  w: ObjectiveWeights, deadline: float,
-                 max_passes: int = 6) -> Solution:
+                 max_passes: int = 6, intra_only: bool = False) -> Solution:
     """2-opt within routes + relocate and swap between routes.
 
     This is the IMPROVEMENT LAYER. Appendix A of the blueprint proposes
     replacing it with Traffic-Aware ALNS; that swap happens here and nowhere
     else, which is why it is isolated behind one function.
+
+    `intra_only` restricts the search to 2-opt, i.e. to RE-SEQUENCING a fixed
+    set of routes. That is the only mode in which this is comparable with the
+    Simulated Bifurcation operator, which cannot move a stop between vehicles
+    because its Ising embedding is a single-tour formulation. The benchmark
+    uses it to put the two re-sequencers head to head on equal terms.
     """
     veh = {v.id: v for v in inst.vehicles}
     cust = {c.id: c for c in inst.customers}
@@ -179,6 +185,9 @@ def local_search(inst: Instance, sol: Solution, tm: TimeMatrix,
                         seq = trial
                         costs[vid] = c
                         improved = True
+
+        if intra_only:
+            continue
 
         # ---- relocate one customer to another route
         vids = list(seqs)

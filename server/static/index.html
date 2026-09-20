@@ -4,428 +4,130 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RoutePulse — SIH26137 Control Tower</title>
-<style>
-  :root{
-    --bg:#0d1117; --panel:#141b24; --line:#1f2a36; --ink:#e6edf3;
-    --muted:#8b98a6; --accent:#4d9fff; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--ink);font:14px/1.5 "Inter",system-ui,sans-serif;
-       height:100vh;display:flex;flex-direction:column;overflow:hidden}
-  header{display:flex;align-items:center;gap:14px;padding:10px 16px;
-         border-bottom:1px solid var(--line);background:var(--panel);flex-shrink:0}
-  header h1{font-size:15px;font-weight:700;letter-spacing:-.01em}
-  header .ps{font-size:11px;color:var(--muted);padding:2px 7px;border:1px solid var(--line);border-radius:3px}
-  header .src{margin-left:auto;font-size:11px;color:var(--muted)}
-  main{flex:1;display:grid;grid-template-columns:1fr 420px;min-height:0}
-  #stage{position:relative;background:#080b0f;overflow:hidden;min-width:0;min-height:0}
-  #map{position:absolute;inset:0;display:block;width:100%;height:100%;cursor:crosshair}
-  .hint{position:absolute;left:12px;bottom:12px;font-size:11px;color:var(--muted);
-        background:rgba(13,17,23,.85);padding:6px 10px;border:1px solid var(--line);border-radius:4px}
-  aside{border-left:1px solid var(--line);background:var(--panel);overflow-y:auto;padding:14px}
-  .bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-  button{font:600 12px/1 "Inter",system-ui,sans-serif;color:var(--ink);background:#1d2733;
-         border:1px solid var(--line);border-radius:4px;padding:8px 11px;cursor:pointer}
-  button:hover{background:#263241;border-color:#31415a}
-  button.primary{background:var(--accent);border-color:var(--accent);color:#04121f}
-  button.primary:hover{background:#6bb0ff}
-  button.danger{background:#3a1d1d;border-color:#5b2626;color:#ffb3ad}
-  button:disabled{opacity:.45;cursor:not-allowed}
-  .mode{display:flex;gap:4px;margin-bottom:12px}
-  .mode label{flex:1;text-align:center;font-size:11px;padding:6px;border:1px solid var(--line);
-              border-radius:4px;cursor:pointer;color:var(--muted)}
-  .mode input{display:none}
-  .mode input:checked + span{color:var(--accent);font-weight:700}
-  h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
-     margin:16px 0 7px;padding-bottom:4px;border-bottom:1px solid var(--line)}
-  .kpis{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-  .kpi{background:#0f1720;border:1px solid var(--line);border-radius:4px;padding:8px 9px}
-  .kpi .v{font:700 17px/1.2 "Inter",system-ui,sans-serif}
-  .kpi .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-  table{width:100%;border-collapse:collapse;font-size:11.5px}
-  th,td{text-align:left;padding:4px 5px;border-bottom:1px solid var(--line)}
-  th{color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
-  td.num{text-align:right;font-variant-numeric:tabular-nums}
-  .win{color:var(--ok);font-weight:700}
-  .bad{color:var(--bad)} .ok{color:var(--ok)} .warn{color:var(--warn)}
-  .case{font-size:12px;padding:8px 10px;border-radius:4px;border:1px solid var(--line);
-        background:#0f1720;margin-bottom:8px;line-height:1.45}
-  .case.acc{border-color:#1d4d2e;background:#0e1a12}
-  .case.rej{border-color:#4d4119;background:#1a1609}
-  .case.alert{border-color:#5b2626;background:#1c0f0f}
-  ul.explain{list-style:none;font-size:11.5px;color:var(--muted)}
-  ul.explain li{padding:3px 0 3px 12px;position:relative}
-  ul.explain li:before{content:"›";position:absolute;left:0;color:var(--accent)}
-  .lat{display:flex;flex-direction:column;gap:3px;font-size:11px}
-  .lat .row{display:flex;align-items:center;gap:6px}
-  .lat .nm{width:118px;color:var(--muted);font-size:10.5px}
-  .lat .track{flex:1;height:9px;background:#0f1720;border-radius:2px;overflow:hidden}
-  .lat .fill{height:100%;background:var(--accent)}
-  .lat .fill.solve{background:#7a5af8} .lat .fill.mat{background:var(--warn)}
-  .lat .ms{width:52px;text-align:right;font-variant-numeric:tabular-nums;font-size:10.5px}
-  .total{display:flex;justify-content:space-between;align-items:baseline;
-         margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
-  .total b{font-size:18px}
-  #conv{width:100%;height:92px;background:#0f1720;border:1px solid var(--line);border-radius:4px}
-  .leg{display:flex;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--muted);margin-top:6px}
-  .leg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
-  .note{font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.45}
-  #amb{background:#0f1720;border:1px solid var(--line);border-radius:4px;padding:10px;font-size:11.5px}
-  #amb .hd{font-weight:700;color:#ff6b6b;margin-bottom:6px}
-  #amb .tr{display:flex;justify-content:space-between;padding:2px 0}
-  #amb .tr b{font-variant-numeric:tabular-nums}
-  #amb .saved{color:var(--ok)} #amb .cost{color:var(--warn)}
-  #amb .split{margin-top:7px;padding-top:7px;border-top:1px solid var(--line)}
-</style>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 9h3l2-6 3 12 2-7h4' fill='none' stroke='%235b9cff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
-<header>
-  <h1>RoutePulse</h1>
-  <span class="ps">SIH26137 · Quantum-Inspired Traffic Route Optimization</span>
-  <span class="src" id="src">booting…</span>
-</header>
 
-<main>
-  <div id="stage">
-    <canvas id="map"></canvas>
-    <div class="hint" id="hint">Click the map to inject an event at that location</div>
+<header class="topbar">
+  <div class="brand">
+    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M1 9h3l2-6 3 12 2-7h4" fill="none" stroke="#5b9cff"
+            stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1>RoutePulse</h1>
+    <span class="sub">SIH26137 · Quantum-Inspired Route Optimization</span>
   </div>
 
-  <aside>
-    <div class="bar">
-      <button class="primary" id="btnPlan">Plan routes</button>
-      <button id="btnReplan" disabled>Re-plan</button>
-      <button class="danger" id="btnReset">Reset</button>
+  <nav class="modes" role="tablist" aria-label="View">
+    <button role="tab" id="tabOps" aria-selected="true" aria-controls="ops">Operations</button>
+    <button role="tab" id="tabEvidence" aria-selected="false" aria-controls="evidence">Evidence</button>
+  </nav>
+
+  <div class="netstat"><span class="dot" id="statDot"></span><span id="statText">connecting…</span></div>
+</header>
+
+<!-- ======================================================== OPERATIONS -->
+<main id="ops" class="view on" role="tabpanel" aria-labelledby="tabOps">
+
+  <aside class="rail">
+    <div class="eyebrow">Fleet</div>
+    <div id="fleet"></div>
+
+    <div class="eyebrow">Network</div>
+    <div id="netmeta"></div>
+
+    <div class="eyebrow">Energy cost of the last solve</div>
+    <div id="energy"></div>
+  </aside>
+
+  <section class="stage">
+    <canvas id="map"></canvas>
+
+    <div class="hud hud-tl">
+      <div class="card controls">
+        <div class="btnrow">
+          <button class="act primary" id="btnPlan">Plan routes</button>
+          <button class="act ghost" id="btnReset" title="Rebuild the instance from scratch">Reset</button>
+        </div>
+        <div class="seg" id="modeSeg">
+          <label><input type="radio" name="ev" value="closure" checked>
+            <span><i class="swatch" id="sw-closure"></i>Closure</span></label>
+          <label><input type="radio" name="ev" value="congestion">
+            <span><i class="swatch" id="sw-congestion"></i>Jam</span></label>
+          <label><input type="radio" name="ev" value="ambulance">
+            <span><i class="swatch" id="sw-ambulance"></i>Ambulance</span></label>
+        </div>
+        <button class="act" id="btnReplan" disabled>Re-plan under the new costs</button>
+        <div class="hint" id="hint">Plan first. Then click <b>on a route line</b> to
+          inject an incident there — clicking empty space is a correct no-op.</div>
+      </div>
     </div>
-    <div class="mode">
-      <label><input type="radio" name="ev" value="closure" checked><span>Road closure</span></label>
-      <label><input type="radio" name="ev" value="congestion"><span>Severe congestion</span></label>
-      <label><input type="radio" name="ev" value="ambulance"><span>🚑 Ambulance</span></label>
+
+    <div class="hud hud-tr"><div class="kpis" id="kpis"></div></div>
+
+    <div class="hud hud-bl">
+      <div class="card legend">
+        <span><i id="lg-route"></i>planned route</span>
+        <span><i id="lg-closed"></i>closed road</span>
+        <span><i id="lg-jam"></i>congested</span>
+        <span><i id="lg-corridor"></i>green corridor</span>
+        <span><i class="sq" id="lg-depot"></i>depot</span>
+        <span><i class="sq" id="lg-prio"></i>priority stop</span>
+      </div>
     </div>
 
-    <div class="kpis" id="kpis"></div>
+    <div class="hud hud-br"><div class="card scalebar" id="scalebar"></div></div>
 
-    <h2 id="ambH" style="display:none">Emergency dispatch</h2>
-    <div id="amb" style="display:none"></div>
+    <div class="scrim" id="scrim">
+      <div class="box"><span class="spin"></span><span id="scrimText">solving…</span></div>
+    </div>
+  </section>
 
-    <h2>Acceptance decision</h2>
-    <div id="case" class="case">No re-plan yet.</div>
-    <ul class="explain" id="explain"></ul>
+  <aside class="inspector">
+    <div class="eyebrow">Acceptance decision</div>
+    <div class="verdict idle" id="verdict">
+      <div class="tag">Standing by</div>
+      <div class="body">No re-plan has run. The incumbent plan is unchanged.</div>
+    </div>
+    <ul class="why" id="why"></ul>
 
-    <h2>End-to-end latency <span style="text-transform:none;letter-spacing:0">(event → accepted plan)</span></h2>
-    <div class="lat" id="lat"></div>
+    <div id="emsWrap" hidden>
+      <div class="eyebrow">Emergency dispatch</div>
+      <div class="ems" id="ems"></div>
+    </div>
+
+    <div class="eyebrow">End-to-end latency · event → accepted plan</div>
+    <div class="wf" id="latency"><div class="hint">Measured on the next re-plan,
+      stage by stage.</div></div>
     <div class="note">The travel-time matrix rebuild is <b>inside</b> this number.
-      A 2025 systematic review found no published study in this field reports
+      A 2025 systematic review of this field found no published study reports
       end-to-end timing at all.</div>
 
-    <h2>Solver race — same instance, same budget</h2>
-    <table id="race"><tbody></tbody></table>
-    <div class="note" id="raceNote"></div>
+    <div class="eyebrow">Solver race · one instance, one budget, one scorer</div>
+    <table class="data" id="race"></table>
+    <div class="note" id="raceNote">Four engines solve the same instance under
+      the same deadline and every plan is re-scored by one official evaluation
+      function. Feasibility is a hard gate, never a penalty weight.</div>
 
-    <h2>QPSO convergence</h2>
+    <div class="eyebrow">QPSO convergence</div>
     <canvas id="conv"></canvas>
-    <div class="leg">
-      <span><i style="background:#4d9fff"></i>best fitness</span>
-      <span><i style="background:#7a5af8"></i>swarm diversity</span>
-      <span><i style="background:#d29922"></i>β (contraction–expansion)</span>
-    </div>
-
-    <h2>Fleet</h2>
-    <table id="fleet"><tbody></tbody></table>
+    <div class="legend" id="convLegend"></div>
   </aside>
+
+  <footer class="timeline">
+    <header><h2>Event timeline</h2><span class="count" id="evCount"></span></header>
+    <div class="track-scroll"><div class="track-rail" id="track"></div></div>
+  </footer>
 </main>
 
-<script>
-const $ = s => document.querySelector(s);
-let G = null, ROUTES = [], CLOSED = [], EVENTS = [], SUMMARY = {}, CONV = [], AMB = null;
-let VIEW = {minLat:0,minLon:0,maxLat:1,maxLon:1};
+<!-- ========================================================== EVIDENCE -->
+<main id="evidence" class="view" role="tabpanel" aria-labelledby="tabEvidence">
+  <div class="ev-wrap" id="evidenceBody"></div>
+</main>
 
-const cv = $('#map'), ctx = cv.getContext('2d');
+<div class="toast" id="toast"></div>
 
-function resize(){
-  const r = cv.parentElement.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  cv.width = r.width*dpr; cv.height = r.height*dpr;
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  draw();
-}
-window.addEventListener('resize', resize);
-
-// Preserve aspect ratio, correcting longitude for latitude, so the road
-// network keeps its real shape instead of being stretched to fill the box.
-function fit(){
-  const w = cv.clientWidth, h = cv.clientHeight, pad = 26;
-  const midLat = (VIEW.minLat + VIEW.maxLat)/2;
-  const kx = Math.cos(midLat * Math.PI/180);
-  const dLon = (VIEW.maxLon - VIEW.minLon) * kx || 1e-9;
-  const dLat = (VIEW.maxLat - VIEW.minLat) || 1e-9;
-  const s = Math.min((w - 2*pad)/dLon, (h - 2*pad)/dLat);
-  return {w, h, pad, kx, s,
-          ox: (w - dLon*s)/2, oy: (h - dLat*s)/2};
-}
-function proj(lat, lon){
-  const f = fit();
-  const x = f.ox + (lon - VIEW.minLon) * f.kx * f.s;
-  const y = f.h - f.oy - (lat - VIEW.minLat) * f.s;
-  return [x, y];
-}
-function unproj(x, y){
-  const f = fit();
-  const lon = VIEW.minLon + (x - f.ox)/(f.kx * f.s);
-  const lat = VIEW.minLat + (f.h - f.oy - y)/f.s;
-  return [lat, lon];
-}
-
-function draw(){
-  const w = cv.clientWidth, h = cv.clientHeight;
-  ctx.clearRect(0,0,w,h);
-  if(!G) return;
-
-  // road network
-  ctx.lineCap='round';
-  for(const s of G.segments){
-    const [a,b] = [proj(s[0],s[1]), proj(s[2],s[3])];
-    ctx.strokeStyle = s[4] >= 40 ? '#233041' : '#192330';
-    ctx.lineWidth   = s[4] >= 40 ? 2.0 : 1.1;
-    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
-  }
-
-  // incidents
-  for(const seg of CLOSED){
-    const [a,b] = [proj(seg[0][0],seg[0][1]), proj(seg[1][0],seg[1][1])];
-    const t = seg[2][0];
-    ctx.strokeStyle = t===1 ? '#f85149' : t===2 ? '#2ea043' : '#d29922';
-    ctx.lineWidth   = t===1 ? 3.2 : t===2 ? 3.0 : 2.6;
-    ctx.globalAlpha = t===2 ? .55 : 1;
-    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
-  // ambulance legs on top of everything
-  if(AMB){
-    for(const [leg,col] of [[AMB.leg_a,'#ff6b6b'],[AMB.leg_b,'#ff9f43']]){
-      if(!leg || !leg.length) continue;
-      ctx.strokeStyle=col; ctx.lineWidth=3.4; ctx.setLineDash([7,4]);
-      ctx.beginPath();
-      leg.forEach((p,i)=>{const q=proj(p[0],p[1]); i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]);});
-      ctx.stroke(); ctx.setLineDash([]);
-    }
-    if(AMB.scene){
-      const q=proj(AMB.scene[0],AMB.scene[1]);
-      ctx.fillStyle='#ff6b6b'; ctx.beginPath(); ctx.arc(q[0],q[1],7,0,6.3); ctx.fill();
-      ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
-    }
-    for(const h of (AMB.hospitals||[])){
-      const q=proj(h.lat,h.lon);
-      ctx.fillStyle = h.name===AMB.hospital ? '#2ea043' : '#3d4757';
-      ctx.fillRect(q[0]-5,q[1]-5,10,10);
-      ctx.strokeStyle='#0d1117'; ctx.lineWidth=1.5; ctx.strokeRect(q[0]-5,q[1]-5,10,10);
-    }
-  }
-
-  // routes
-  for(const r of ROUTES){
-    ctx.strokeStyle = r.color; ctx.lineWidth = 2.6;
-    ctx.globalAlpha = .95; ctx.beginPath();
-    r.polyline.forEach((p,i)=>{ const q=proj(p[0],p[1]);
-      i? ctx.lineTo(q[0],q[1]) : ctx.moveTo(q[0],q[1]); });
-    ctx.stroke(); ctx.globalAlpha = 1;
-    for(const st of r.stops){
-      const q = proj(st.lat, st.lon);
-      ctx.fillStyle = r.color;
-      ctx.beginPath(); ctx.arc(q[0],q[1], st.priority? 5.5:3.8, 0, 6.3); ctx.fill();
-      if(st.priority){ ctx.strokeStyle='#fff'; ctx.lineWidth=1.4; ctx.stroke(); }
-    }
-  }
-
-  // event markers
-  for(const e of EVENTS){
-    const q = proj(e.lat, e.lon);
-    ctx.strokeStyle = e.kind==='closure' ? '#f85149' : '#d29922';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath(); ctx.arc(q[0],q[1], 13, 0, 6.3); ctx.stroke();
-    ctx.beginPath(); ctx.arc(q[0],q[1], 20, 0, 6.3); ctx.globalAlpha=.35; ctx.stroke(); ctx.globalAlpha=1;
-  }
-
-  // depot
-  if(SUMMARY.depot){
-    const q = proj(SUMMARY.depot.lat, SUMMARY.depot.lon);
-    ctx.fillStyle = '#e6edf3';
-    ctx.fillRect(q[0]-6, q[1]-6, 12, 12);
-    ctx.strokeStyle='#0d1117'; ctx.lineWidth=2; ctx.strokeRect(q[0]-6,q[1]-6,12,12);
-  }
-}
-
-function drawConv(){
-  const c = $('#conv'), x = c.getContext('2d');
-  const dpr = window.devicePixelRatio||1;
-  c.width = c.clientWidth*dpr; c.height = c.clientHeight*dpr;
-  x.setTransform(dpr,0,0,dpr,0,0);
-  const w = c.clientWidth, h = c.clientHeight;
-  x.clearRect(0,0,w,h);
-  if(!CONV.length){ x.fillStyle='#8b98a6'; x.font='11px Inter,sans-serif';
-    x.fillText('run a re-plan to record convergence', 10, h/2); return; }
-  const best = CONV.map(d=>d.best).filter(v=>v!=null);
-  if(!best.length) return;
-  const lo = Math.min(...best), hi = Math.max(...best), rng = (hi-lo)||1;
-  const px = i => 6 + i/(Math.max(1,CONV.length-1)) * (w-12);
-  // best fitness
-  x.strokeStyle='#4d9fff'; x.lineWidth=1.8; x.beginPath();
-  CONV.forEach((d,i)=>{ if(d.best==null) return;
-    const y = h-8 - (d.best-lo)/rng*(h-20);
-    i? x.lineTo(px(i),y): x.moveTo(px(i),y); });
-  x.stroke();
-  // diversity
-  const dv = CONV.map(d=>d.diversity), dmax = Math.max(...dv)||1;
-  x.strokeStyle='#7a5af8'; x.lineWidth=1.2; x.beginPath();
-  CONV.forEach((d,i)=>{ const y = h-8 - (d.diversity/dmax)*(h-20);
-    i? x.lineTo(px(i),y): x.moveTo(px(i),y); });
-  x.stroke();
-  // beta
-  x.strokeStyle='#d29922'; x.lineWidth=1.2; x.setLineDash([3,3]); x.beginPath();
-  CONV.forEach((d,i)=>{ const y = h-8 - (d.beta/1.0)*(h-20);
-    i? x.lineTo(px(i),y): x.moveTo(px(i),y); });
-  x.stroke(); x.setLineDash([]);
-}
-
-function kpis(){
-  const s = SUMMARY;
-  $('#kpis').innerHTML = !s.score ? '' : `
-    <div class="kpi"><div class="v">${s.travel_min}<span style="font-size:11px;color:#8b98a6"> min</span></div><div class="l">fleet travel</div></div>
-    <div class="kpi"><div class="v">${s.makespan_min}<span style="font-size:11px;color:#8b98a6"> min</span></div><div class="l">makespan</div></div>
-    <div class="kpi"><div class="v">${s.vehicles_used}/${ROUTES.length||s.vehicles_used}</div><div class="l">vehicles used</div></div>
-    <div class="kpi"><div class="v ${s.feasible?'ok':'bad'}">${s.feasible?'VALID':'INVALID'}</div><div class="l">feasibility gate</div></div>`;
-}
-
-function fleet(){
-  const rows = ROUTES.map(r=>`<tr>
-     <td><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${r.color};margin-right:6px"></span>V${r.vehicle}</td>
-     <td class="num">${r.stops.length}</td><td class="num">${r.load}</td><td class="num">${r.travel_min}</td></tr>`).join('');
-  $('#fleet').innerHTML = `<thead><tr><th>vehicle</th><th style="text-align:right">stops</th>
-      <th style="text-align:right">load</th><th style="text-align:right">min</th></tr></thead><tbody>${rows}</tbody>`;
-}
-
-function latency(d){
-  const st = d.stages_ms||{}, total = d.total_ms||0;
-  const max = Math.max(...Object.values(st), 1);
-  const cls = k => k.includes('matrix')?'mat' : k.includes('solve')?'solve':'';
-  $('#lat').innerHTML = Object.entries(st).map(([k,v])=>`
-    <div class="row"><span class="nm">${k.replace(/_/g,' ')}</span>
-      <span class="track"><span class="fill ${cls(k)}" style="width:${Math.max(2,v/max*100)}%"></span></span>
-      <span class="ms">${v.toFixed(1)}</span></div>`).join('')
-    + `<div class="total"><span style="color:#8b98a6;font-size:11px">event → accepted plan</span>
-       <b class="${total<500?'ok':'warn'}">${total.toFixed(0)} ms</b></div>`;
-}
-
-function race(d){
-  const cands = (d.candidates||[]).filter(c=>!c.error);
-  const feas = cands.filter(c=>c.feasible && c.score!=null);
-  const best = feas.length? Math.min(...feas.map(c=>c.score)) : null;
-  $('#race').innerHTML = `<thead><tr><th>engine</th><th style="text-align:right">score</th>
-    <th style="text-align:right">travel</th><th style="text-align:right">ms</th><th>valid</th></tr></thead><tbody>`
-    + cands.map(c=>`<tr>
-      <td class="${c.score===best?'win':''}">${c.engine}</td>
-      <td class="num ${c.score===best?'win':''}">${c.score==null?'—':c.score.toLocaleString()}</td>
-      <td class="num">${c.travel_min==null?'—':c.travel_min}</td>
-      <td class="num">${c.ms}</td>
-      <td class="${c.feasible?'ok':'bad'}">${c.feasible?'yes':'no'}</td></tr>`).join('') + `</tbody>`;
-  const q = cands.find(c=>c.engine.startsWith('QPSO')), o = cands.find(c=>c.engine==='OR-Tools');
-  $('#raceNote').textContent = (q&&o&&q.score&&o.score)
-    ? `QPSO is ${(((o.score-q.score)/o.score)*100).toFixed(1)}% better than OR-Tools on this instance — both given the same matrix, same budget, same commitment constraints.`
-    : 'All engines re-scored by one official evaluation function; feasibility is a hard gate.';
-}
-
-function applyReplan(d){
-  const el = $('#case');
-  el.className = 'case ' + (d.alert? 'alert' : d.accepted? 'acc':'rej');
-  el.innerHTML = `<b>${d.accepted?'ACCEPTED':'NOT ACCEPTED'}</b> — ${d.case}`
-    + (d.alert? `<br><span class="bad">${d.alert}</span>`:'')
-    + `<br><span style="color:#8b98a6;font-size:11px">incumbent was ${d.incumbent_was_feasible?'feasible':'INFEASIBLE'} under updated costs ·
-       ${d.matrix_pairs_rebuilt} matrix pairs rebuilt · ${d.fifo_violations} FIFO violations</span>`;
-  $('#explain').innerHTML = (d.explanation||[]).map(e=>`<li>${e}</li>`).join('');
-  latency(d); race(d);
-  CONV = d.convergence||[]; drawConv();
-}
-
-async function api(path, opts){
-  const r = await fetch(path, opts); return r.json();
-}
-
-$('#btnPlan').onclick = async () => {
-  $('#btnPlan').disabled = true; $('#btnPlan').textContent='planning…';
-  const d = await api('/api/plan?budget=1.2', {method:'POST'});
-  ROUTES=d.routes; CLOSED=d.closed; SUMMARY=d.summary; EVENTS=d.events;
-  kpis(); fleet(); draw();
-  $('#btnPlan').disabled=false; $('#btnPlan').textContent='Re-plan from scratch';
-  $('#btnReplan').disabled=false;
-  $('#case').className='case'; $('#case').textContent =
-    `Initial plan built in ${d.plan_ms.toFixed(0)} ms. Now click the map to inject an event.`;
-};
-
-$('#btnReplan').onclick = async () => {
-  $('#btnReplan').disabled=true; $('#btnReplan').textContent='solving…';
-  const d = await api('/api/replan?budget=0.35&race=true', {method:'POST'});
-  ROUTES=d.routes; CLOSED=d.closed; SUMMARY=d.summary; EVENTS=d.events;
-  kpis(); fleet(); draw(); applyReplan(d);
-  $('#btnReplan').disabled=false; $('#btnReplan').textContent='Re-plan';
-};
-
-$('#btnReset').onclick = async () => {
-  await api('/api/reset', {method:'POST'});
-  ROUTES=[];CLOSED=[];EVENTS=[];SUMMARY={};CONV=[];AMB=null;
-  $('#ambH').style.display='none'; $('#amb').style.display='none';
-  kpis();fleet();draw();drawConv();
-  $('#case').className='case'; $('#case').textContent='Reset. Click “Plan routes”.';
-  $('#btnReplan').disabled=true;
-};
-
-cv.addEventListener('click', async ev => {
-  if(!ROUTES.length) return;
-  const r = cv.getBoundingClientRect();
-  const [lat,lon] = unproj(ev.clientX-r.left, ev.clientY-r.top);
-  const kind = document.querySelector('input[name=ev]:checked').value;
-
-  if(kind === 'ambulance'){
-    $('#hint').textContent = 'dispatching…';
-    const d = await api('/api/ambulance', {method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({lat, lon, severity:2})});
-    if(!d.ok){ $('#hint').textContent = 'dispatch failed: '+(d.error||''); return; }
-    AMB = d; CLOSED = d.closed; EVENTS = d.events; draw();
-    $('#ambH').style.display=''; $('#amb').style.display='';
-    $('#amb').innerHTML = `
-      <div class="hd">🚑 ${d.unit} → ${d.hospital}</div>
-      <div class="tr"><span>to scene</span><b>${d.to_scene_min} min</b></div>
-      <div class="tr"><span>scene → hospital</span><b>${d.to_hospital_min} min</b></div>
-      <div class="tr"><span>total under priority</span><b>${d.total_min} min</b></div>
-      <div class="tr"><span>without priority</span><b>${d.baseline_min} min</b></div>
-      <div class="tr saved"><span><b>ambulance time saved</b></span><b>${d.time_saved_min} min</b></div>
-      <div class="split">
-        <div class="tr cost"><span><b>cost of priority to the fleet</b></span><b>+${d.cost_of_priority}</b></div>
-        <div class="tr"><span>fleet cost before → after</span><b>${d.fleet_cost_before} → ${d.fleet_cost_after}</b></div>
-        <div class="tr"><span>green corridor</span><b>${d.corridor_edges} edges</b></div>
-        <div class="tr"><span>path latency (budget 200 ms)</span><b>${d.path_ms} ms</b></div>
-      </div>
-      <div class="note">Priority is not teleportation — one-ways and physical
-        closures are still respected. It is also not free: both numbers above
-        are reported.</div>`;
-    $('#hint').textContent = `Ambulance dispatched — press “Re-plan” to see the fleet yield`;
-    return;
-  }
-
-  const d = await api('/api/event', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({lat, lon, kind, radius_m:420, multiplier:6})});
-  CLOSED=d.closed; EVENTS=d.events; draw();
-  $('#hint').textContent = `${d.label} injected — press “Re-plan”`;
-});
-
-(async function boot(){
-  const b = await api('/api/boot');
-  G = await api('/api/graph');
-  VIEW = {minLat:G.bounds[0],minLon:G.bounds[1],maxLat:G.bounds[2],maxLon:G.bounds[3]};
-  $('#src').textContent = `${G.source} · ${b.nodes} nodes · ${b.customers} stops · ${b.vehicles} vehicles`;
-  resize(); drawConv();
-})();
-</script>
+<script src="/static/app.js"></script>
 </body>
 </html>

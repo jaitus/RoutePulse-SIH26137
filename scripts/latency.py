@@ -64,9 +64,15 @@ def main() -> None:
     print(f"config : {args.stops} stops, {args.vehicles} vehicles, "
           f"{args.budget:.2f}s solver budget, {args.trials} injected incidents\n")
 
+    # The OPERATIONAL path is a single engine: one dispatcher waiting on one
+    # solver. Both single-engine arms are reported because ALNS replaced the
+    # improvement layer on the strength of the 30-seed adoption gate and the
+    # latency consequence of that decision has to be visible, not assumed.
+    # The demo race is a separate number and is never averaged in with them.
     modes = {
+        "operational (ALNS only)": ("alns",),
         "operational (QPSO only)": ("qpso",),
-        "demo (3-engine race)": ("emergency", "qpso", "ortools"),
+        "demo (4-engine race)": ("emergency", "qpso", "alns", "ortools"),
     }
     report: dict = {"graph": src, "config": vars(args), "modes": {}}
 

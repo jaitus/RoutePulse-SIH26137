@@ -6,12 +6,18 @@ doing all the work?
 
 Arms (identical instance, identical wall-clock budget, identical local search):
 
-  A   QPSO + local search, warm-started      <- the proposed system
-  A0  QPSO + local search, cold start        <- isolates warm start
-  B   Random-restart keys + local search     <- isolates the SWARM UPDATE RULE
-  D   QPSO, local search OFF                 <- isolates the improvement layer
-  E   Greedy + local search only             <- does the population layer earn its place?
-  OR  OR-Tools (same matrix, same budget)    <- external baseline
+  A     QPSO + local search, warm-started    <- the proposed system
+  A0    QPSO + local search, cold start      <- isolates warm start
+  B     Random-restart keys + local search   <- isolates the SWARM UPDATE RULE
+  D     QPSO, local search OFF               <- isolates the improvement layer
+  E     Greedy + local search only           <- does the population layer earn its place?
+  ALNS  Greedy + Traffic-Aware ALNS          <- Appendix A, behind its adoption gate
+  SB    Greedy + LS + Simulated Bifurcation  <- the quantum-derived re-sequencer
+  OR    OR-Tools (same matrix, same budget)  <- external baseline
+
+ALNS and SB both replace part of E's improvement layer at an IDENTICAL total
+budget, so "is it better?" is asked the only way it can be answered honestly:
+same instance, same wall-clock, paired test.
 
 Run:  python scripts/bench.py --seeds 10 --budget 0.35
 """
@@ -77,6 +83,39 @@ def run_arm(arm: str, inst, tm, w, budget: float, seed: int):
         s = local_search(inst, warm, tm, w, time.perf_counter() + budget)
         s = score(inst, s, tm, w)
         tel = {"iterations": 0, "evaluations": 0}
+    elif arm == "ALNS":     # greedy + Traffic-Aware ALNS, same total budget as E
+        from routepulse.solvers.alns import alns_with_telemetry
+        s, tel = alns_with_telemetry(inst, warm, tm, w,
+                                     time.perf_counter() + budget, seed=seed)
+        s = score(inst, s, tm, w)
+    elif arm == "SEQ_LS":   # re-sequencing head-to-head, classical side
+        # 2-opt ONLY: no relocate, no swap. Routes are fixed; the only question
+        # is the order within them -- the exact question SB's single-tour Ising
+        # embedding can answer. Any other comparison would be rigged.
+        s = local_search(inst, warm, tm, w, time.perf_counter() + budget,
+                         intra_only=True)
+        s = score(inst, s, tm, w)
+        tel = {"iterations": 0, "evaluations": 0}
+    elif arm == "SEQ_SB":   # re-sequencing head-to-head, quantum-derived side
+        from routepulse.solvers.sb import sb_resequence
+        s, tel = sb_resequence(inst, warm, tm, w, time.perf_counter() + budget,
+                               seed=seed)
+        s = score(inst, s, tm, w)
+        tel = {"iterations": tel.get("routes_tried", 0),
+               "evaluations": tel.get("routes_improved", 0), **tel}
+    elif arm == "SB":       # greedy + LS, then Simulated Bifurcation re-sequencing
+        # 75% of the budget on 2-opt, 25% on SB. The split is arbitrary but it
+        # is the SAME total budget as E, which is what makes the pair testable.
+        from routepulse.solvers.sb import sb_resequence
+        s = local_search(inst, warm, tm, w, time.perf_counter() + budget * 0.75)
+        s = score(inst, s, tm, w)
+        s2, tel = sb_resequence(inst, s, tm, w,
+                                time.perf_counter() + budget * 0.25, seed=seed)
+        s2 = score(inst, s2, tm, w)
+        if s2.score < s.score and s2.feasible:
+            s = s2
+        tel = {"iterations": tel.get("routes_tried", 0),
+               "evaluations": tel.get("routes_improved", 0), **tel}
     elif arm == "A":
         s, tel = solve_qpso(inst, tm, w, budget, seed=seed, warm_start=warm)
     elif arm == "A0":
@@ -115,10 +154,15 @@ def main() -> None:
     args = ap.parse_args()
 
     w = ObjectiveWeights()
-    arms = ["GREEDY", "E", "A", "A0", "B", "D", "OR"]
+    arms = ["GREEDY", "E", "ALNS", "SB", "SEQ_LS", "SEQ_SB",
+            "A", "A0", "B", "D", "OR"]
     labels = {
         "GREEDY": "Greedy construction only",
         "E":      "Greedy + local search (no swarm)",
+        "ALNS":   "Greedy + Traffic-Aware ALNS",
+        "SB":     "Greedy + LS + Simulated Bifurcation",
+        "SEQ_LS": "  re-sequencing only: 2-opt",
+        "SEQ_SB": "  re-sequencing only: Simulated Bifurcation",
         "A":      "QPSO + LS, warm start   [proposed]",
         "A0":     "QPSO + LS, cold start",
         "B":      "Random-restart + LS (no swarm pull)",
@@ -218,6 +262,42 @@ def main() -> None:
     if "A" in summary and "OR" in summary:
         d = (m("OR") - m("A")) / m("OR") * 100
         print(f"  vs OR-Tools                        : {d:+.2f}%")
+
+    print("\nADOPTION GATES (same start, same total budget, vs 'Greedy + LS')")
+    for arm, name in (("ALNS", "Traffic-Aware ALNS"),
+                      ("SB", "Simulated Bifurcation")):
+        if arm not in summary or "E" not in summary:
+            continue
+        d = (m("E") - m(arm)) / m("E") * 100
+        p = tests.get(arm, {}).get("p")
+        if p is None:
+            verdict = "no test"
+        elif p < 0.05 and d > 0:
+            verdict = "ADOPT — better and significant"
+        elif p < 0.05:
+            verdict = "REJECT — significantly WORSE"
+        else:
+            verdict = "DO NOT ADOPT — inside the noise"
+        ptxt = "p=n/a" if p is None else f"p={p:.4f}"
+        print(f"  {name:<24} {d:+6.2f}%  {ptxt:<10} {verdict}")
+
+    if "SEQ_LS" in summary and "SEQ_SB" in summary:
+        d = (m("SEQ_LS") - m("SEQ_SB")) / m("SEQ_LS") * 100
+        print("\nRE-SEQUENCER HEAD-TO-HEAD (identical routes, identical budget)")
+        print(f"  Simulated Bifurcation vs 2-opt : {d:+.2f}%  "
+              f"(positive = the Ising machine wins)")
+        try:
+            from scipy.stats import wilcoxon as _wx
+            pairs = [(a["score"], b["score"]) for a, b in
+                     zip(results["SEQ_LS"], results["SEQ_SB"])
+                     if a["feasible"] and b["feasible"]]
+            if len(pairs) >= 5 and not all(abs(x - y) < 1e-9 for x, y in pairs):
+                _s, pv = _wx([x for x, _ in pairs], [y for _, y in pairs])
+                print(f"  paired Wilcoxon                : p={pv:.4f}  n={len(pairs)}"
+                      f"  {'significant' if pv < 0.05 else 'NOT significant'}")
+                tests["SEQ_SB_vs_SEQ_LS"] = {"p": float(pv), "n": len(pairs)}
+        except ImportError:
+            pass
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
