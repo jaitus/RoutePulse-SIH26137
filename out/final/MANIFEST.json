@@ -20,44 +20,53 @@
    "pytest": "9.1.1",
    "httpx": "0.28.1"
   },
-  "git_commit": "06b082581905be67cea831b9844f8cacec786d7d",
+  "git_commit": "b22a9a5ee42c12df80df3e3e842d9852ea522bf5",
   "git_branch": "main",
-  "git_dirty": true,
+  "git_dirty": false,
   "sumo": false
  },
  "files": {
   "bench_30seed.json": {
-   "sha256": "5772bebc3d59296fbc519e5a0a4cfab697c1793f04267b805e8c9feebee39c27",
-   "bytes": 71182
+   "sha256": "a3f885b3bfabe2d5550fcb3b23dd188feb75b7376d7b736cfef6b121a2032001",
+   "bytes": 73117
   },
   "latency.json": {
-   "sha256": "c8db37453e0e38a9e7bac93da5f01c7f90cf87128fb853c8192a988ca54744fa",
-   "bytes": 2734
+   "sha256": "41529bf45c0d3193ccd46797607ebcc2753a215ab3b174776ee15cfb1cf34f5f",
+   "bytes": 2737
   },
   "scenarios.json": {
-   "sha256": "d7d05fc6c590ac1930b7721eee21477a3c211ce371e00e8a843499aad6c5b904",
-   "bytes": 3492
+   "sha256": "cfdb482c6ae2fbf6c401a2beabd6c330912b07e62a2eae969e5beb2219fb280e",
+   "bytes": 4373
   },
   "convergence.json": {
-   "sha256": "f55293be687313483238189371a109343473535f79d2f31ef31afb3a27463c60",
-   "bytes": 2079
+   "sha256": "94aa9ff5d308a28c9e08e2a92f0d1ea8d27cf9059dd1de663334a46565d64d27",
+   "bytes": 3417
   },
   "energy.json": {
-   "sha256": "645e6cf50b545ca8d5def40c034561390bd819a8b6bbabff0014db15590ebefa",
-   "bytes": 2116
+   "sha256": "b7d84b274cb2366ffbb695a36fa1a5fb0ffc2224f74da0a7ff44119da83b67f5",
+   "bytes": 2117
   },
   "sb.json": {
-   "sha256": "a5f15c631e3af06d061e426332662a1fb0a87c82ab1204f13259998fee06d7b2",
-   "bytes": 11701
+   "sha256": "7a7a8ddf2a78c015cc357a18fcfe86a02a889a36f701e0625a7c2d6f39ea7892",
+   "bytes": 11706
   },
   "oracles.json": {
-   "sha256": "05b7f8f9ee1598ad3a1e596b57bf9580a820299cc6e97139b88510096b7ec794",
+   "sha256": "240c1dbf7d84f35e39b508251d6c080f0c17bd914f4740ccd0d020b1a641f480",
    "bytes": 3829
   },
   "security.json": {
-   "sha256": "69a7f5d251dc4729c56823303400970064200afde111a0958adf401596633af5",
-   "bytes": 4599
+   "sha256": "e5c37e55db123f818098feb0046b9e4b1457ae263782644c50fdece4af5abbf2",
+   "bytes": 4721
+  },
+  "test_summary.json": {
+   "sha256": "002b493112401d2890541b155117a656c9f23c354498214b5bfb47da55f7d6b8",
+   "bytes": 247
+  },
+  "dynamic_arm.json": {
+   "sha256": "871800751cfda67366dec6ccc6a1d3711042f7ce35f5d4f1ad62373427af0e05",
+   "bytes": 18669
   }
  },
- "missing": []
+ "missing": [],
+ "provisional": false
 }

@@ -19,8 +19,8 @@
   "pytest": "9.1.1",
   "httpx": "0.28.1"
  },
- "git_commit": "06b082581905be67cea831b9844f8cacec786d7d",
+ "git_commit": "b22a9a5ee42c12df80df3e3e842d9852ea522bf5",
  "git_branch": "main",
- "git_dirty": true,
+ "git_dirty": false,
  "sumo": false
 }
