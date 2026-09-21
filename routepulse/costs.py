@@ -9,10 +9,11 @@ free and it is not excluded from the reported number.
 """
 from __future__ import annotations
 
+import bisect
 import math
 import time
 
-from .graph import RoadGraph
+from .graph import HORIZON_SECONDS, RoadGraph
 
 
 class TimeMatrix:
@@ -24,13 +25,29 @@ class TimeMatrix:
     """
 
     def __init__(self, graph: RoadGraph, nodes: list[int],
-                 buckets: int = 5, horizon: float = 12 * 3600.0) -> None:
+                 buckets: int = 5, horizon: float | None = None,
+                 use_overlays: bool = True) -> None:
         self.g = graph
         self.nodes = nodes
         self.index = {n: i for i, n in enumerate(nodes)}
         self.buckets = buckets
-        self.horizon = horizon
-        self.bucket_t = [horizon * b / max(1, buckets - 1) for b in range(buckets)]
+        # ONE declared horizon, shared with the graph's time-of-day profile.
+        # These used to disagree (profile 14 h, matrix 12 h) and every query
+        # past 12 h clamped to the last bucket without saying so.
+        self.horizon = HORIZON_SECONDS if horizon is None else horizon
+        # A BASELINE matrix ignores incidents and corridors entirely and sees
+        # only the time-of-day curve. It is what the congestion-exposure term in
+        # the official scorer is measured against, and because the base profile
+        # never changes it is built once and never rebuilt.
+        self.use_overlays = use_overlays
+        self.base: "TimeMatrix | None" = None
+        # Buckets are placed where the time-of-day curve bends, not evenly.
+        # See RoadGraph.bucket_times(): uniform spacing missed both rush-hour
+        # peaks and cost 10.9% mean absolute error against exact TD Dijkstra.
+        self.bucket_t = (graph.bucket_times(buckets)
+                         if hasattr(graph, "bucket_times")
+                         else [self.horizon * b / max(1, buckets - 1)
+                               for b in range(buckets)])
         self.M: list[list[list[float]]] = []      # [bucket][i][j]
         self.build_seconds = 0.0
         self.last_pairs_rebuilt = 0
@@ -86,7 +103,8 @@ class TimeMatrix:
         for b, bt in enumerate(self.bucket_t):
             wts = np.empty(len(self._edge_meta), dtype=np.float64)
             for e, (u, v, L, spd, key) in enumerate(self._edge_meta):
-                tt = g.travel_time(u, v, L, spd, key, bt)
+                tt = g.travel_time(u, v, L, spd, key, bt,
+                                   use_overlays=self.use_overlays)
                 wts[e] = np.inf if math.isinf(tt) else tt
             finite = np.isfinite(wts)
             csr = csr_matrix(
@@ -94,13 +112,68 @@ class TimeMatrix:
                 shape=(N, N))
             src_ix = np.asarray([self._node_ix[self.nodes[i]] for i in rows],
                                 dtype=np.int32)
-            D = dijkstra(csr, directed=True, indices=src_ix, min_only=False)
+            # PREDECESSORS. Without them `rows_affected_by` has nothing to
+            # match against and has to declare every row stale, which meant
+            # scoped invalidation was dead code and every incident paid for a
+            # FULL rebuild -- 180 ms of a 500 ms budget to recompute rows that
+            # provably could not have changed. scipy returns the tree for a few
+            # percent more time; the saving on the common path is an order of
+            # magnitude.
+            D, P = dijkstra(csr, directed=True, indices=src_ix,
+                            min_only=False, return_predecessors=True)
             for r, i in enumerate(rows):
                 row = D[r]
                 for j in range(len(self.nodes)):
                     self.M[b][i][j] = 0.0 if i == j else float(row[tgt_ix[j]])
+            # Keep the predecessor tree as a NUMPY ARRAY, indexed
+            # [row][node_index] -> parent node index. Materialising it as a
+            # dict of node ids was the obvious thing and it cost 380 ms per
+            # rebuild: 31 rows x 3,091 nodes x 6 buckets is half a million
+            # Python dict writes to answer a question that is one array lookup
+            # per changed edge.
+            if not hasattr(self, "_pred") or len(self._pred) != self.buckets:
+                self._pred = [None] * self.buckets
+            if self._pred[b] is None or self._pred[b].shape[0] != len(self.nodes):
+                self._pred[b] = np.full((len(self.nodes), N), -1, dtype=np.int32)
+            for r, i in enumerate(rows):
+                self._pred[b][i] = P[r]
         self._used_scipy = True
         return True
+
+    def _pred_rows_affected(self, changed_keys: set[str]) -> set[int] | None:
+        """Which matrix rows have a changed edge in their shortest-path tree?
+
+        Returns None when the predecessor arrays are unavailable, so the caller
+        can fall back to "all rows" rather than to a wrong subset.
+        """
+        pred = getattr(self, "_pred", None)
+        if not pred or any(p is None for p in pred):
+            return None
+        ix = getattr(self, "_node_ix", None)
+        if ix is None:
+            return None
+        pairs = []
+        for key in changed_keys:
+            try:
+                u, v = key.split("->")
+                iu, iv = ix.get(int(u)), ix.get(int(v))
+            except (ValueError, AttributeError):
+                continue
+            if iu is not None and iv is not None:
+                pairs.append((iu, iv))
+        if not pairs:
+            return set()
+        hit: set[int] = set()
+        n_rows = len(self.nodes)
+        for b in range(self.buckets):
+            P = pred[b]
+            for iu, iv in pairs:
+                # every row whose tree reaches v via u
+                rows = (P[:, iv] == iu).nonzero()[0]
+                hit.update(int(r) for r in rows)
+                if len(hit) >= n_rows:
+                    return set(range(n_rows))
+        return hit
 
     def _build_all(self) -> None:
         self._pen_cache = {}   # costs changed -> memoised penalties are stale
@@ -120,7 +193,8 @@ class TimeMatrix:
         targets = set(self.nodes)
         for b, bt in enumerate(self.bucket_t):
             for i, src in enumerate(self.nodes):
-                d, prev = self.g.dijkstra_tt(src, targets, bt, want_tree=True)
+                d, prev = self.g.dijkstra_tt(src, targets, bt, want_tree=True,
+                                             use_overlays=self.use_overlays)
                 self.trees[b][i] = prev
                 for j, dst in enumerate(self.nodes):
                     self.M[b][i][j] = 0.0 if i == j else d.get(dst, math.inf)
@@ -136,10 +210,16 @@ class TimeMatrix:
         """
         if not changed_keys:
             return set()
-        # The scipy fast path does not build predecessor trees, so we cannot
-        # prove which rows are unaffected. Returning a subset here would leave
-        # stale ETAs in the cache -- silently wrong numbers, which is worse than
-        # slow ones. With scipy a full rebuild is ~40 ms anyway, so say "all".
+        # Fast path: the scipy build now keeps predecessor arrays, so the
+        # question is answerable directly and cheaply. It used to be
+        # unanswerable, and the honest response then was "all rows" -- correct
+        # but expensive enough to dominate the re-plan budget.
+        fast = self._pred_rows_affected(changed_keys)
+        if fast is not None:
+            return fast
+        # Pure-Python fallback: no trees means we cannot PROVE which rows are
+        # unaffected, and returning a subset would leave stale ETAs cached --
+        # silently wrong numbers, which is worse than slow ones.
         if not any(self.trees[0][i] for i in range(len(self.nodes))):
             return set(range(len(self.nodes)))
         hit: set[int] = set()
@@ -171,7 +251,8 @@ class TimeMatrix:
         for b, bt in enumerate(self.bucket_t):
             for i in rows:
                 d, prev = self.g.dijkstra_tt(self.nodes[i], targets, bt,
-                                             want_tree=True)
+                                             want_tree=True,
+                                             use_overlays=self.use_overlays)
                 self.trees[b][i] = prev
                 for j, dst in enumerate(self.nodes):
                     self.M[b][i][j] = 0.0 if i == j else d.get(dst, math.inf)
@@ -202,10 +283,15 @@ class TimeMatrix:
         if i == j:
             return 0.0
         t = max(0.0, min(self.horizon, depart_t))
-        step = self.horizon / max(1, self.buckets - 1)
-        b = min(self.buckets - 2, int(t // step)) if self.buckets > 1 else 0
+        # Buckets are NOT uniformly spaced any more, so find the bracketing
+        # pair rather than dividing by a step. bisect on a 3-9 element list is
+        # cheaper than the modulo it replaces.
+        if self.buckets <= 1:
+            return self.M[0][i][j]
+        b = bisect.bisect_right(self.bucket_t, t) - 1
+        b = max(0, min(self.buckets - 2, b))
         t0 = self.bucket_t[b]
-        t1 = self.bucket_t[min(b + 1, self.buckets - 1)]
+        t1 = self.bucket_t[b + 1]
         a = self.M[b][i][j]
         c = self.M[min(b + 1, self.buckets - 1)][i][j]
         if math.isinf(a) or math.isinf(c):

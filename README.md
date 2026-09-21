@@ -3,11 +3,11 @@
 **Quantum-Inspired Intelligent Traffic Route Optimization in Transportation Systems Using Metaheuristic Optimization**
 Egreen Quanta · AICTE Smart India Hackathon 2026 · Quantum Technology Vertical
 
-A live fleet re-optimisation control tower. Plan routes on a real road network,
-inject a road closure, a jam or an ambulance, and watch the fleet recover under
-a hard time budget — with end-to-end latency, feasibility, energy and solver
-comparison all **measured and shown**, including the measurements that do not
-flatter us.
+A live fleet re-optimisation control sheet. Plan routes on a real road network,
+inject a road closure, a jam or an ambulance, let the clock run, and watch the
+fleet recover under a hard deadline — with end-to-end latency, feasibility,
+congestion exposure, energy and solver comparison all **measured and shown**,
+including the measurements that do not flatter us.
 
 ---
 
@@ -23,50 +23,43 @@ Open <http://127.0.0.1:8000>.
 
 The console has two modes:
 
-- **Operations** — the live map, drawn as a transport authority's plan sheet:
-  warm paper, a pale street network, flat transit-diagram route colours, and a
-  drawing title block in the corner carrying the network, scale, zoom and
-  revision count. *Plan routes*, pick an incident type, click on a coloured
-  route line, then *Re-plan*. Left rail is the fleet, the band above the map is
-  the KPI strip, the right drawer is the acceptance decision with the latency
-  waterfall and solver race, and the bottom strip is the event timeline. Scroll
-  to zoom, drag to pan, hover a stop for its ETA.
+- **Operations** — the live map, drawn as a transport authority's plan sheet.
+  *Plan routes* → pick an incident type → **click on a coloured route line** →
+  *Re-plan*. **Advance clock** lets the fleet actually drive: stops whose ETA
+  has passed are delivered and leave the problem, vehicles move to where they
+  are, and the next re-plan starts from there. Dispatching an ambulance is
+  **one action** — it computes the priority route, publishes a per-edge green
+  corridor and recovers the fleet in a single request.
+- **Evidence** — the measured record, rendered straight from `out/`: the
+  30-seed ablation with significance tests, both adoption gates, convergence,
+  latency percentiles *and their scaling*, the Simulated Bifurcation study, the
+  S1–S9 scenario suite, energy accounting, and a blunt list of what the system
+  is not. Keyboard: `1`/`2` switch modes, `p` plans, `r` re-plans.
 
-  Semantics are carried by pattern as well as hue, so the sheet survives a bad
-  projector: a closed road is a barrier line with a cross tick, congestion is a
-  marching dashed line, a green corridor is a double line, a delivery stop is a
-  white-centred station marker, and the depot is a solid black square.
-- **Evidence** — the measured record: the 30-seed ablation with significance
-  tests, both adoption gates, convergence, latency percentiles, the Simulated
-  Bifurcation study, the S1–S9 scenario suite, energy accounting, and a blunt
-  list of what the system is not — laid out as a report, with numbered sections,
-  an issue block and ruled tables. Keyboard: `1` and `2` switch modes, `p`
-  plans, `r` re-plans.
-
-Both views carry a real print stylesheet. Ctrl+P produces a usable hard copy,
-because the whole design is a printed sheet and a judge who asks for one should
-get something that works.
+Both views carry a print stylesheet; Ctrl+P produces a usable hard copy.
 
 **No internet required.** No CDN, no map tiles, no external JS, no web fonts.
-The road network is drawn on a canvas from our own API and a synthetic grid is
-used if the cached Bengaluru graph is absent — the demo cannot be killed by
-venue Wi-Fi.
 
-### Reproducing every number on the Evidence page
+### Reproducing every number
 
 ```bash
+python -m pytest tests/ -q                         # 62 unit tests
 python scripts/bench.py --seeds 30 --budget 0.35   # ablation + adoption gates
-python scripts/latency.py --trials 20              # end-to-end percentiles
+python scripts/latency.py --trials 20 --scale 30,60,100
 python scripts/convergence.py --budget 4.0 --seeds 3 --cold
-python scripts/scenarios.py                        # S1-S9 operational suite
+python scripts/scenarios.py                        # S1-S9
+python scripts/oracles.py                          # exact VRP + exact TD path
 python scripts/sb_eval.py                          # Simulated Bifurcation study
-python scripts/energy.py --trials 12               # energy per re-plan
-python scripts/security_check.py                   # hardening, against a live server
+python scripts/energy.py --trials 12
+python scripts/security_check.py                   # needs a live server
+python scripts/freeze_env.py --final               # hash the evidence package
+python scripts/report.py                           # regenerate the status report
 ```
 
-Everything lands in `out/` and is committed. The Evidence view renders those
-files and **never computes anything** — if an experiment has not been run, the
-panel says MISSING rather than showing a plausible default.
+Everything lands in `out/` and is committed. `--final` copies the evidence set
+into `out/final/` with a SHA-256 per file and the environment it was produced
+in. The Evidence view renders those files and **never computes anything** — a
+missing experiment shows MISSING rather than a plausible default.
 
 ---
 
@@ -74,29 +67,60 @@ panel says MISSING rather than showing a plausible default.
 
 | # | Deliverable | Where |
 |---|---|---|
-| 1 | Graph-based Network Model | `routepulse/graph.py` — weighted directed road graph from OpenStreetMap (Overpass), with the **dynamic weight update mechanism**: piecewise-linear time-of-day profiles plus incident and corridor overlays |
-| 2 | Mathematical Formulation | `FORMULATION.md` — objective, decision variables, capacity / time-window / **flow conservation** constraints, FIFO condition, acceptance rule, and (§11) the Ising/QUBO reduction |
-| 3 | Quantum-Inspired Algorithm Module | `routepulse/solvers/qpso.py` — QPSO with the update rule written out in full; `routepulse/solvers/sb.py` — **Simulated Bifurcation**, the classical limit of a real Kerr-nonlinear parametric oscillator network |
+| 1 | Graph-based Network Model | `routepulse/graph.py` — weighted directed road graph from OpenStreetMap, with the **dynamic weight update mechanism**: piecewise-linear time-of-day profile, a hard closure set, and timed soft overlays that compose deterministically |
+| 2 | Mathematical Formulation | `FORMULATION.md` — objective, decision variables, capacity / time-window / **flow conservation** constraints, FIFO condition, acceptance rule, §11 the Ising reduction, §12 the congestion-exposure definition |
+| 3 | Quantum-Inspired Algorithm Module | `routepulse/solvers/qpso.py` — QPSO with the update rule written out in full **and a classical PSO control sharing the identical decoder**; `routepulse/solvers/sb.py` — Simulated Bifurcation, the classical limit of a real Kerr-nonlinear oscillator network |
 | 4 | Software Platform / Prototype | `server/` — API and UI, network + traffic input, optimised route output, **map visualisation**, offline by construction, CSP-hardened |
-| 5 | Demonstration | Bengaluru zone, 30 stops, 5 vehicles, live incidents under **varying traffic conditions**; `scripts/` for experimental results |
+| 5 | Demonstration | Bengaluru zone under varying traffic; `scripts/` for experimental results; `tests/` for correctness |
 
 Constraint handling, convergence analysis and systematic performance
 benchmarking — all three named by the sponsor's Expected Solution paragraph —
 are in `routepulse/validator.py`, `scripts/convergence.py` and
-`scripts/bench.py` respectively, and all three are on the Evidence page.
+`scripts/bench.py`, and all three are on the Evidence page.
 
 ---
 
-## The engines
+## Architecture — two vehicle classes, one cost layer
 
-Four solve; one decides.
+```
+            delivery fleet                    ambulance
+        dynamic CVRP / VRPTW          single-origin TD shortest path
+                  \                            /
+                   \                          /
+                    ----- shared cost layer -----
+                 time-of-day profile · closures · overlays
+                                 |
+                      ETA invalidation + re-plan
+                                 |
+              four engines race under ONE global deadline
+          emergency heuristic · QPSO · Traffic-Aware ALNS · OR-Tools
+                                 |
+                      independent feasibility gate
+                                 |
+                   three-case acceptance → accepted plan
+```
+
+**The ambulance is not a vehicle in the VRP.** It is a different problem —
+single-origin, single-destination, time-dependent shortest path under an
+emergency cost model — solved separately and coupled through the cost layer.
+Its predicted road occupancy becomes a temporary cost increase on normal-vehicle
+routing, and the delivery optimiser reacts to that, exactly as it reacts to any
+other incident.
+
+**QPSO and ALNS are two separate engines, not a hybrid chain.** A chained
+QPSO → ALNS arm was measured against both parents on the same budget and does
+not beat ALNS alone, so nothing in this project describes it as a hybrid. That
+is a measurement, not a preference — see the Evidence page.
+
+### The engines
 
 | Engine | What it is | Status |
 |---|---|---|
-| **Emergency heuristic** | Greedy insertion + a short local search. Something feasible *immediately*. | always in the race |
-| **QPSO + local search** | Deliverable 3's quantum-inspired module. Delta-potential-well sampling over random keys, Prins Split decode, memetic + Lamarckian steps. | always in the race; contribution reported, not assumed |
-| **Traffic-Aware ALNS** | Destroy/repair with adaptive operator weights, plus a removal operator that tears out the stops the traffic actually broke. | **adopted** — passed its gate at 7.2%, p < 0.0001 |
-| **Simulated Bifurcation** | Genuinely quantum-derived: the equations of motion of a physical Ising machine. | **not adopted** — see §5 |
+| **Emergency heuristic** | Greedy insertion + short local search. Something feasible *immediately*. | always in the race |
+| **QPSO + local search** | Deliverable 3's quantum-inspired module. Delta-potential-well sampling over random keys, Prins Split decode, memetic + Lamarckian steps. | in the race; contribution reported, not assumed |
+| **Classical PSO** | Same encoding, decoder, improvement layer, restarts and budget. Only the position-update line differs. | control arm |
+| **Traffic-Aware ALNS** | Six destroy operators — random, worst, Shaw, traffic-aware, **event-biased**, **string** — two repair operators, published reward schedule, weights persisted per event type. | **adopted** — passed its gate |
+| **Simulated Bifurcation** | Genuinely quantum-derived: the equations of motion of a physical Ising machine. | **not adopted** — kept as a documented negative result |
 | **OR-Tools** | Fair external comparator: same matrix, same budget, same constraints. | baseline |
 
 Every candidate is re-scored by **one** evaluation function in
@@ -106,337 +130,88 @@ penalty weight.
 
 ---
 
-## The QPSO update rule (Deliverable 3 asks for this explicitly)
+## The cost layer
 
-A particle has **no velocity**. Its position is sampled directly from a
-delta-potential well (Sun, Feng & Xu, 2004):
+### Closures and overlays are different things
 
-```
-1. mean best        mbest_d = (1/M) * SUM_i pbest_id
-2. local attractor  phi ~ U(0,1)
-                    p_id = phi * pbest_id + (1 - phi) * gbest_d
-3. position update  u ~ U(0,1),  L_id = beta * |mbest_d - x_id|
-                    x_id = p_id ± L_id * ln(1/u)      (sign chosen 50/50)
-4. contraction      beta(t) = beta_hi - (beta_hi - beta_lo) * t/T
-```
+A physical closure and a soft slowdown do not share a slot. `closed` is a set —
+hard, no magnitude, cleared only by an explicit reopen. `overlays` is a list of
+timed multipliers per edge whose composition is the product of the active ones.
+A congestion event landing on a closed road leaves the road closed.
 
-`ln(1/u)` gives the heavy tail that lets a particle appear far from the swarm —
-the tunnelling behaviour the method is named for. `beta` sets the well width:
-large explores, small exploits.
+*This was a real bug.* Both lived in one multiplier map where a closure stored
+infinity, so a later congestion write overwrote the infinity and **reopened a
+physically closed road**, with nothing reporting it.
 
-**Decoding:** continuous keys → `argsort` → permutation → capacity-aware
-**Split** (Prins 2004, *Computers & OR* 31(12):1985–2002) → routes.
+### The green corridor is per-edge
 
----
+Each corridor edge carries the window the ambulance is actually predicted to be
+on it, derived by walking its path at the emergency cost model and padding for
+traffic clearing ahead and re-forming behind. A delivery vehicle crossing the
+far end of a corridor twenty minutes after the ambulance has passed pays
+nothing; under the old route-level window it paid in full.
 
-## Measured results — including the ones that do not flatter us
+### One clock
 
-**Real OpenStreetMap Bengaluru network** (6,420 junctions), zone-constrained
-instances, **30 seeds** — the protocol the literature review recommends — 30
-customers, 5 vehicles, 350 ms budget, identical instance and matrix per seed,
-every plan re-scored by one official evaluation function. Lower is better.
-Raw data: `out/bench_30seed.json`.
+`Engine.now` is the single origin, in seconds from the start of the declared
+horizon (**08:00–22:00**, `graph.HORIZON_SECONDS`). Every event timestamp,
+corridor window, vehicle availability and ETA uses it. Previously there were
+three: dispatch defaulted to `now=0.0`, the UI stamped wall-clock `time.time()`,
+and the planner horizon was relative simulation time.
 
-| Arm | Mean | sd | Best | vs greedy+LS | Wilcoxon *p* |
-|---|---:|---:|---:|---:|---:|
-| Greedy construction only | 3,786 | 377 | 3,044 | −28.8% | <0.0001 ✓ |
-| Greedy + local search (no swarm) | 2,939 | 286 | 2,177 | — | reference |
-| **Greedy + Traffic-Aware ALNS** | **2,726** | 279 | 2,255 | **+7.2%** | **<0.0001 ✓** |
-| Greedy + LS + Simulated Bifurcation | 2,939 | 286 | 2,177 | +0.0% | identical |
-| ↳ re-sequencing only: 2-opt | 3,670 | 366 | 2,938 | −24.9% | <0.0001 ✓ |
-| ↳ re-sequencing only: Simulated Bifurcation | 3,779 | 379 | 3,044 | −28.6% | <0.0001 ✓ |
-| QPSO + LS, warm start | 2,929 | 293 | 2,177 | +0.3% | **0.98 ✗** |
-| QPSO + LS, cold start | 2,903 | 277 | 2,459 | +1.2% | 0.48 ✗ |
-| Random-restart + LS (no swarm pull) | 2,910 | 274 | 2,177 | +1.0% | 0.64 ✗ |
-| QPSO, local search OFF | 3,778 | 370 | 3,044 | −28.5% | <0.0001 ✓ |
-| OR-Tools (same matrix, same budget) | **2,572** | 218 | 2,121 | +12.5% | <0.0001 ✓ |
+### The travel-time matrix is an approximation, and here is its error
 
-✓ significant at α=0.05 · ✗ not significant · paired Wilcoxon signed-rank against
-the greedy+LS reference (arms share instances, so paired is the correct test).
+The matrix samples edge weights at *k* departure times and interpolates;
+`graph.dijkstra_tt` evaluates every edge at its real accumulated departure time
+and is kept as the oracle. Measured against it, with buckets placed **where the
+traffic curve bends** rather than uniformly:
 
-### What these numbers actually say
+| buckets | mean abs error | rebuild | |
+|---|---:|---:|---|
+| 3, uniform | 10.8% | ~70 ms | the old default |
+| 5, profile-aligned | **4.5%** | ~130 ms | **production** |
+| 6, profile-aligned | 1.7% | ~200 ms | breaks the 500 ms deadline |
 
-**1. The improvement layer does the work; the swarm does not clear
-significance.** Removing local search costs **22.5%** (p < 0.0001). The swarm
-layer as a whole is worth **+0.3%** and does not reach significance at 30 seeds
-(p = 0.98); the quantum update rule specifically loses to a random-restart
-control using the identical improvement layer. This is exactly the critique
-Sörensen (2015) makes of metaphor-named metaheuristics, and the control arm was
-built specifically to detect it.
+Uniform spacing over a 14-hour horizon put buckets at 08:00, 15:00 and 22:00 —
+straddling both rush-hour peaks. That error was larger than any solver
+improvement this benchmark has ever measured, sitting underneath every number in
+it. Six buckets is the most accurate and pushes the operational p95 past target;
+five cuts the old error by 2.4× and holds the deadline, so the solver budget
+went from 350 ms to 250 ms to pay for it. An error in the cost model is worse
+than slightly less search, because every downstream number inherits it.
 
-**2. We diagnosed *why*, fixed the structure, and it improved — but not enough.**
-The first measurements had the swarm at −0.5%. Tracing the convergence showed the
-cause, and it is a property of the *encoding*, not the metaheuristic:
+### Cache invalidation works in both directions
 
-> `gbest` was maintained as a local-search output while particles were scored
-> **raw**. A raw random-key decode measures ~1.7× worse than its own refined form,
-> so **no particle could ever displace the incumbent** — the swarm was
-> structurally unable to contribute regardless of its update rule or diversity.
-
-Confirmed directly: a diversity-triggered restart fires 2–3 times per run,
-measurably re-diversifies the swarm (0.12 → 0.20), and changed the final
-objective by **exactly zero**. The fix — a **Lamarckian step** that improves one
-particle in place per generation and rewrites its genotype — moved the swarm
-contribution from −0.5% into the noise band it still occupies. Real, reproducible,
-and still not significant.
-
-**3. OR-Tools beats us on solution quality by 12.5% (p < 0.0001)** — given the
-same matrix, budget, capacity, time windows and commitment constraints. We do
-not claim to beat the state of the art on static quality. The claim is the
-dynamic, commitment-aware recovery path with end-to-end latency accounting.
-
-> **What we would tell the panel:** the honest headline is not "our
-> quantum-inspired solver wins". It is *"we built the experiment that could
-> prove it didn't, ran it at the recommended protocol, found the structural
-> reason, fixed what could be fixed, and reported the rest."* Two engines were
-> then put through the same gate — one passed and shipped, one failed and was
-> kept as a documented negative result.
+After a cost **increase** a matrix row is stale only if a changed edge is in its
+shortest-path tree, and the scipy build now keeps predecessor arrays so that is
+answerable. After a cost **decrease** — a reopened road, a lifted jam, an
+expired corridor — a newly cheaper path need never have been in the old tree, so
+the engine forces a full rebuild. A sampling oracle in `tests/test_matrix.py`
+compares the cached matrix against a full recompute in both directions and fails
+on any mismatch.
 
 ---
 
-## Adoption gate 1 — Traffic-Aware ALNS: **ADOPTED**
+## The simulation contract — stated once, not fudged
 
-Appendix A of the blueprint proposed replacing the 2-opt/relocate/swap
-improvement layer with Adaptive Large Neighbourhood Search (Ropke & Pisinger
-2006), and required an explicit gate before adoption. It cleared it:
-**7.2% better, p < 0.0001**, same greedy start, same wall-clock budget, 30
-paired seeds. It is now the default improvement layer for initial planning and
-runs in every re-plan race.
+RoutePulse does **not** detect ambulances and does **not** integrate a live 112
+feed. It **consumes** an external emergency feed. In this prototype that feed is
+a mock API a demo operator or script drives:
 
-`routepulse/solvers/alns.py`. Four destroy operators — random, worst-removal,
-Shaw relatedness, and a **traffic-aware** one that ranks stops by how far their
-inbound leg's realised travel time has diverged from free flow — two repair
-operators (greedy, regret-2), Ropke & Pisinger's published reward schedule, and
-simulated-annealing acceptance. The traffic-aware operator is the delta over
-textbook ALNS: after an incident it tears out the part of the plan the incident
-broke, not a random part.
-
-The published reward constants are used unchanged rather than tuned on our own
-instances, so the arm is a fair test of the published method.
-
----
-
-## Adoption gate 2 — Simulated Bifurcation: **NOT ADOPTED, and that is the finding**
-
-QPSO is quantum-inspired *by analogy*. A panel is entitled to ask "in what sense
-is any of this quantum?", and the honest answer for QPSO is "by metaphor".
-
-Simulated Bifurcation is a different kind of object. Goto (2016) showed that a
-network of Kerr-nonlinear parametric oscillators driven through its bifurcation
-point relaxes into the ground state of an Ising Hamiltonian; Goto, Tatsumura &
-Dixon (2019, *Sci. Adv.* 5:eaav2372) showed that simulating the **classical**
-Hamiltonian equations of that same network solves the Ising problem on ordinary
-hardware. `routepulse/solvers/sb.py` integrates those equations of motion
-(discrete variant, Goto et al. 2021) with symplectic Euler and inelastic walls.
-
-Three questions, asked in order (`python scripts/sb_eval.py` → `out/sb.json`):
-
-**1. Is the solver correct?** Against exhaustive enumeration on random Ising
-instances: **20/20 exact ground states at 10, 12 and 14 spins**, mean gap 0.000%.
-Nothing below is a bug in the solver.
-
-**2. Is the embedding sound?** The tour is embedded as $m^2$ position-indexed
-spins (Lucas 2014 §7.2). The constraint penalty $A$, in units of the largest leg:
-
-| A | valid tours | gap vs optimal |
-|---|---|---:|
-| 0.5× max leg | **4/20** | +7.9% |
-| 1.0× max leg | 20/20 | +1.2% |
-| 2.0× max leg | 20/20 | +6.0% |
-| 4.0× max leg | 20/20 | +10.9% |
-
-The classic QUBO objection, measured: too weak a penalty and the spin
-configuration is not a tour at all; too strong and it drowns the objective it
-exists to protect.
-
-**3. Is it worth anything here?** On 24 real routes (mean 9.75 stops, ~97 spins),
-given the same routes as 2-opt and asked only to reorder them:
-
-| | 2-opt | Simulated Bifurcation |
-|---|---:|---:|
-| wins, head to head | **22** | 1 (1 tie) |
-| mean time per route | **1.75 ms** | 140 ms |
-| gap vs exact optimum, **travel only** | +2.2% | +6.0% |
-| gap vs exact optimum, **full objective** | **0.0%** | +257% → **+10.8%** with the time-window field |
-
-That decomposition is the result. **SB is competitive on the objective its
-Hamiltonian actually encodes and catastrophic on the objective the fleet is
-actually judged by**, because lateness depends on cumulative arrival time — a
-prefix sum over the permutation — and no quadratic form in $x_{i,p}$ equals a
-prefix sum. Pricing deadline order into the *local field* (the one degree of
-freedom the Ising form leaves, `position_field()` in `sb.py`) recovers most of
-the damage: measured over the deadline-order weight λ,
-
-| λ | cost vs the greedy order it replaced |
-|---|---:|
-| 0 | **+1428%** |
-| 0.1 | +454% |
-| 0.2 | +23% |
-| **0.5** | **+19%** ← default |
-| 2.0 | +33% |
-
-Read the first row carefully. Without the bias the Ising model's "best" tour
-costs fourteen times what a greedy one does — not because the solver failed, but
-because the Hamiltonian was missing the term that dominates the real cost.
-
-**Verdict:** a correctly implemented, independently validated Ising machine is
-beaten by 2-opt on this problem by 3.0% at 80× the time (p < 0.0001). It stays in
-the repository as a selectable engine and as the honest answer to whether
-quantum-derived optimisation is ready for time-windowed fleet routing today. It
-is not, and the reason is the embedding, not the hardware.
-
----
-
-## End-to-end latency
-
-Reported as **event → accepted plan**, decomposed. The travel-time matrix
-rebuild is *inside* this number — the review below found that data-translation
-overhead, not the optimiser, dominates total turnaround in published work.
-
-Real Bengaluru network, 6,420 junctions, 30 stops / 5 vehicles / 3 buckets,
-20 injected closures. `python scripts/latency.py` · raw: `out/latency.json`.
-
-| Path | p50 | p95 | worst | 500 ms target |
-|---|---:|---:|---:|---|
-| **operational — ALNS only** | 447 | **462** | 486 | ✅ met |
-| operational — QPSO only | 451 | 484 | 498 | ✅ met |
-| demo — 4-engine race | 1,249 | 1,466 | 3,045 | reported separately |
-
-Operational p95 by stage (ALNS): freeze 0.0 · FIFO assert 10.9 · **matrix rebuild
-100.0** · evaluate incumbent 0.3 · solve 357.0 · acceptance 0.0.
-
-A dispatcher waits on **one** engine. The race exists so a judge can watch four
-engines compete on identical inputs, and it is never averaged in with the
-operational number — conflating them would flatter whichever number we chose.
-
-### How it got there — 5,287 ms → 462 ms
-
-The first honest measurement was **p95 = 5,287 ms**, over 10× the target, with a
-228-second outlier. Four fixes, in order of payoff:
-
-| Fix | Effect |
+| Endpoint | Purpose |
 |---|---|
-| **scipy `csgraph` Dijkstra** instead of pure-Python | matrix 4,456 → 118 ms |
-| **Zone-constrained instances** (1.4 km, as the PS describes) + service-area subgraph | 5,287 → 2,520 ms |
-| **Scoped FIFO check** — only edges carrying an overlay, not all 16,413 | 400 → 3 ms |
-| Shortest-path-tree invalidation | sound scoping for cost increases |
+| `GET /api/mock/ambulances` | unit states |
+| `POST /api/mock/ambulance/telemetry` | publish a position |
+| `POST /api/mock/ambulance/complete` | end the call, expire the corridor |
 
-The scipy swap is sound rather than a shortcut: **within one bucket the edge
-weights are constant by construction** — a bucket *is* a fixed departure time —
-so each bucket is an ordinary static shortest-path problem. Nothing about the
-model changed; only the inner loop.
+In a deployment the same endpoints would be fed by an authorised GPS/AVL or
+dispatch-system integration.
 
-> **A bug this nearly introduced:** the scipy path does not build predecessor
-> trees, so the tree-based "which rows are stale?" check returned *nothing* and
-> the matrix silently stopped rebuilding after incidents — fast, and wrong.
-> `rows_affected_by()` now returns *all* rows when trees are unavailable.
-
----
-
-## Energy per re-plan
-
-The 2025 systematic review names energy reporting as a gap in this field. It
-matters here because a recovery engine is not run once — it runs on every
-incident, all day, at every depot.
-
-`python scripts/energy.py` → `out/energy.json`. Measured: CPU seconds and wall
-time. Energy: from the **ACPI battery discharge sensor** when the machine
-exposes one, otherwise **modelled** as `cpu_seconds × 15 W per busy core` with
-the coefficient printed next to every figure it produced. The run below was on
-mains power, so it is the modelled path and says so.
-
-| Configuration | wall ms | CPU ms | mWh / re-plan | kWh / year¹ | kg CO₂e / year² |
-|---|---:|---:|---:|---:|---:|
-| Emergency heuristic only | 153 | 151 | 0.629 | 0.092 | 0.066 |
-| **Operational — ALNS** | 448 | 445 | 1.855 | 0.271 | 0.194 |
-| Operational — QPSO | 450 | 443 | 1.845 | 0.269 | 0.193 |
-| Demo race — 4 engines | 1,226 | 1,216 | 5.067 | 0.740 | 0.530 |
-
-¹ at 400 re-plans/day — one every ~2 minutes across a 14-hour delivery window.
-² CEA all-India grid average, 0.716 kg CO₂e/kWh, 2023-24.
-
-**For scale:** the operational path uses **0.27 kWh a year**. A single 100 W depot
-floodlight burns four times that in one ten-hour shift. The honest reading is
-that the optimiser's own energy is negligible beside the diesel it saves — and
-that is only a credible statement because it was measured rather than assumed
-away.
-
----
-
-## Emergency-vehicle priority
-
-An ambulance is **not a vehicle in the VRP**. Delivery is a capacitated,
-time-windowed, multi-vehicle routing problem; the ambulance is a single-origin,
-single-destination time-dependent shortest path under a different cost model and
-a tighter deadline. They are solved separately and coupled through the cost
-layer — which needs no new machinery, because a **green corridor is structurally
-identical to a congestion incident** and the recovery engine already handles one.
-
-Measured on the real network (`scripts/scenarios.py --only S8 S9`):
-
-| | |
-|---|---|
-| Ambulance, under priority | **7.1 min** |
-| Ambulance, without priority | 11.9 min |
-| **Time saved** | **4.8 min** |
-| **Cost of priority to the delivery fleet** | **+345.7** (3,030.2 → 3,375.9) |
-| Green corridor | 112 edges, 25-minute window |
-| Emergency path latency | **66.2 ms** (budget 200 ms) |
-
-**Priority is not teleportation.** One-ways and physical closures are still
-respected — S9 closes six edges on the ambulance's *own* route and verifies it
-reroutes around them (41 → 58 nodes, **0 closed edges used**, +0.5 min detour).
-
-**Priority is not free, and we report both sides.** The corridor that speeds the
-ambulance up slows the fleet down. Most systems show only the first number.
-
-Two further details that matter:
-
-- The corridor is an **exogenous forecast**, not a measurement — it applies only
-  to the forward window `t > now`. Summing it with observed slowdown for the
-  same instant would double-count one physical effect.
-- **Commitment beats corridor**: a vehicle already en route to a stop inside the
-  corridor completes that leg first.
-
----
-
-## Scenario suite — S1 to S9
-
-`python scripts/scenarios.py` → `out/scenarios.json`
-
-**9/9 pass with their condition actually exercised.** That qualifier is the
-point: the harness reports a **VACUOUS** verdict when a scenario passes without
-triggering what it claims to test, and it caught three of those during
-development — S1 and S5 were closing *zero* edges (a connectivity guard was
-reopening everything) and S9's first version closed roads that missed the
-ambulance's path entirely. All three would have reported green having tested
-nothing.
-
----
-
-## Convergence analysis
-
-`python scripts/convergence.py --budget 4.0 --seeds 3 --cold`
-→ `out/convergence.png`, `out/convergence.json`
-
-| Measure | Value |
-|---|---|
-| gbest improvement | **+43.6%** (11,693 → 6,600) |
-| Swarm diversity | 0.2205 → 0.0505 (**77% collapse**) |
-| β (contraction–expansion) | 0.988 → 0.659 |
-| Stagnation onset | **iteration 8** of 41 |
-
-Convergence analysis is not the same thing as an anytime curve, and the sponsor
-asks for it by name. The useful finding is the stagnation point: the swarm has
-effectively converged by iteration 8, so the remaining ~33 iterations of the
-budget buy almost nothing. That argues for a shorter budget or a better
-diversification mechanism — and it is part of why ALNS, which keeps finding new
-bests throughout its budget, won its gate.
-
-A 2025 systematic review of this field (Liu, Parkinson & Best, *Smart Cities*
-8:206) found that of fifteen peer-reviewed studies, **none** reported end-to-end
-timing and **none** applied hypothesis tests or confidence intervals. We report
-both.
+**SUMO / TraCI is not part of this build and is not claimed anywhere.** The
+blueprint named it as the simulation layer; it was never implemented. Shipping a
+claim nothing backs is worse than shipping a smaller honest one, so it is
+removed rather than left ambiguous. `scripts/freeze_env.py` records whether SUMO
+is on PATH; it is not, and nothing depends on it.
 
 ---
 
@@ -451,41 +226,160 @@ CASE 3  nothing feasible     -> hold, list violations, RAISE DISPATCHER ALERT
 Case 2 exists because after a closure the incumbent may be physically
 impossible, and requiring a new plan to beat an impossible one by ε is
 undefined. Case 3 exists because a failure that reaches nobody is not handled.
+All three are exercised by `tests/test_acceptance.py`, and **S1 now drives a
+deterministic closure that genuinely makes the incumbent infeasible** — it used
+to pass on Case 1 while claiming to test Case 2.
 
-Feasibility is decided by an **independent validator**, never by the solver that
-produced the plan, and never by a finite penalty weight.
+---
+
+## Vehicle state advances
+
+`POST /api/advance` moves the simulation clock and lets the fleet drive: stops
+whose planned arrival has passed are **served** and leave the instance, each
+vehicle's position becomes its last completed stop, its earliest availability
+becomes when it finished there, and the matrix is rebuilt over the remaining
+node set. Re-planning then starts from where the fleet is.
+
+Until this existed, "dynamic re-planning" always restarted from the depot with
+the full customer list: the cost layer was dynamic and the vehicles were not.
+
+---
+
+## Measured results
+
+The full record is on the **Evidence** tab and in `out/`. The headline figures,
+with the file each comes from:
+
+| | | source |
+|---|---|---|
+| Traffic-Aware ALNS vs greedy + local search | **+8.3%, p < 0.0001 → adopted** | `out/bench_30seed.json` |
+| QPSO + LS vs greedy + local search | +1.9%, p = 0.036 — but the random-restart control also clears at +1.3% | `out/bench_30seed.json` |
+| **QPSO vs classical PSO** | **+0.1%, p = 0.95 — indistinguishable.** Same encoding, decoder, improvement layer and budget; only the update rule differs | `out/bench_30seed.json` |
+| QPSO → ALNS chained hybrid | −1.7% against ALNS alone, p = 0.22 — **two engines, not a hybrid** | `out/bench_30seed.json` |
+| ALNS vs OR-Tools | OR-Tools still ahead by 5.1%, p < 0.0001 (it was ~13% before ALNS) | `out/bench_30seed.json` |
+| Gap to the **true optimum** on exhaustively enumerable instances | ALNS / QPSO / PSO reach it; greedy+LS does not | `out/oracles.json` |
+| Travel-time matrix error vs exact TD Dijkstra | 4.5% mean absolute at the production setting | `out/oracles.json` |
+| Operational latency | meets 500 ms p95 at demo scale, **does not at 60 and 100 stops** | `out/latency.json` |
+| Scenarios S1–S9 | 9/9 with every condition exercised, S1 on Case 2 | `out/scenarios.json` |
+| Simulated Bifurcation | exact Ising ground states, and still beaten by 2-opt | `out/sb.json` |
+| Energy per re-plan | milliwatt-hours; negligible beside the diesel saved | `out/energy.json` |
+| Security suite | passes in both open and API-key mode | `out/security.json` |
+
+`python scripts/report.py` regenerates a standalone status report from these
+files. Every figure in it is read at generation time and carries its source;
+none is typed.
+
+### What these numbers say
+
+**1. The improvement layer does the work, and the *quantum* part does nothing
+distinguishable.** Removing local search costs ~23%. The population layer as a
+whole is worth +1.9% (p = 0.036) — but a random-restart control with no swarm
+pull at all clears at +1.3%, and the decisive comparison is the new one:
+**QPSO against a classical PSO control is +0.1% at p = 0.95.** Identical
+encoding, decoder, improvement layer, restart logic and budget; only the line
+that moves a particle differs. A random-restart arm can tell you whether having
+a population helps; only the PSO control can tell you whether the
+*quantum-inspired* rule does, and it does not. This is exactly the critique
+Sörensen (2015) makes of metaphor-named metaheuristics, and the control arm was
+built to detect it.
+
+**2. ALNS earned its place and SB did not.** Both were built from the blueprint
+and put through the same gate: beat the existing improvement layer from the same
+start, on the same budget, over 30 paired seeds. One passed and shipped. One
+failed and was kept, because *why* it failed is the most interesting result in
+the project.
+
+**3. OR-Tools is still ahead on static quality — by 5.1%, down from ~13%.**
+Adopting ALNS closed more than half the gap and we still do not claim to have
+closed it. The claim is the dynamic, commitment-aware recovery path with
+end-to-end latency accounting — plus an absolute one: on instances small enough
+to enumerate exhaustively, ALNS, QPSO and PSO all reach the true optimum while
+greedy + local search does not.
+
+---
+
+## Adoption gate 1 — Traffic-Aware ALNS: **ADOPTED**
+
+`routepulse/solvers/alns.py`. Ropke & Pisinger (2006) with the published reward
+schedule left untuned, plus two operators the textbook does not have:
+
+- **Event-biased removal** — takes the edges the *current* incident actually
+  touched and removes the stops whose own path crosses them. After an incident
+  that is the part of the plan that is wrong; everything else is still fine.
+- **String removal** — tears out a contiguous run so the repair can re-thread a
+  leg, which the point-wise operators cannot do.
+- **Traffic-aware removal** — ranks stops by how far their inbound leg has
+  diverged from free flow.
+
+Operator weights **persist across re-plans, keyed by event type** (closure /
+congestion / ambulance / initial), so a depot stops relearning the same lesson
+on every incident. A closure and an ambulance corridor are different problems
+and do not share a prior.
+
+---
+
+## Adoption gate 2 — Simulated Bifurcation: **NOT ADOPTED, and that is the finding**
+
+QPSO is quantum-inspired *by analogy*. Simulated Bifurcation is the classical
+limit of a real system: Goto (2016) showed a network of Kerr-nonlinear
+parametric oscillators driven through its bifurcation point relaxes into the
+ground state of an Ising Hamiltonian, and Goto, Tatsumura & Dixon (2019,
+*Sci. Adv.* 5:eaav2372) showed simulating the **classical** equations of that
+network solves the Ising problem on ordinary hardware.
+
+Three questions, asked in order (`python scripts/sb_eval.py`):
+
+1. **Is the solver correct?** Exact ground states against exhaustive
+   enumeration at 10, 12 and 14 spins. Nothing below is a bug in the solver.
+2. **Is the embedding sound?** The constraint penalty is calibrated and the
+   point where decodes stop being valid tours is measured, not assumed.
+3. **Is it worth anything here?** It is competitive on the objective its
+   Hamiltonian encodes — travel time — and catastrophic on the objective the
+   fleet is judged by, because lateness depends on cumulative arrival time and
+   no quadratic form in the position-indexed variables equals a prefix sum.
+   Pricing deadline order into the *local field* — the one degree of freedom the
+   Ising form leaves — recovers most of the damage. It still loses to 2-opt.
+
+**Verdict:** a correctly implemented, independently validated Ising machine is
+beaten by 2-opt on this problem. That is a result about the *embedding*, not the
+hardware, and it is the honest answer to whether quantum-derived optimisation is
+ready for time-windowed fleet routing today.
 
 ---
 
 ## Security posture
 
-`python scripts/security_check.py` exercises every claim below against a running
-server and exits non-zero if any fails. **31/31 pass** with a key configured,
-28/28 in open mode.
+`python scripts/security_check.py` exercises every claim below against a
+running server, writes the result to `out/security.json`, and exits non-zero if
+any check fails.
 
-- **Every numeric input is bounded at the schema.** An unbounded `n` is a denial
-  of service in one request: instance size drives an O(n²) matrix build.
-- **Coordinates are bounded to the served extract.** A lat/lon anywhere on Earth
-  would snap to the nearest Bengaluru node and inject an incident nobody asked
-  for.
+- **Every numeric input is bounded at the schema**, and request validation now
+  precedes state validation — a malformed request is 422 whether or not the
+  server holds a plan.
+- **`GET /api/boot` is read-only.** It used to take n/k/seed and rebuild the
+  entire simulation on an unauthenticated GET. Rebuilding is `POST /api/reset`,
+  behind the key.
+- **Coordinates are bounded to the served extract.**
 - **API key on mutating endpoints** when `ROUTEPULSE_API_KEY` is set. Unset, the
-  server is open and `/api/health` *says so* — silent "security" is worse than
-  none, because it is believed.
-- **Per-client token bucket** on the expensive endpoints. A solve is hundreds of
-  milliseconds of CPU; unmetered, a loop of them is the whole box. Verified to
-  fire at 40 solves/minute.
-- **One solve at a time, behind a lock.** The engine holds mutable state; two
-  concurrent re-plans would interleave writes and produce a plan that is a
-  mixture of two events.
-- **Errors return a generic message.** Tracebacks name paths, versions and
-  internal structure.
-- **CSP of `'self'` with no `'unsafe-inline'`**, plus nosniff, DENY framing,
-  no-referrer and a locked-down permissions policy. This is why the UI ships as
-  separate `.css`/`.js` files with no inline script and no CDN.
-- **The road graph is loaded with `json`, never `pickle`.** A pickle load is
-  arbitrary code execution, and a cache file is exactly the sort of thing that
-  gets copied between machines.
-- Interactive API docs (`/docs`, `/redoc`, `/openapi.json`) are not served.
+  server is open and `/api/health` *says so*.
+- **Per-client token bucket** on the expensive endpoints, verified to fire.
+- **One solve at a time, behind a lock.**
+- **Errors return a generic message**; tracebacks name paths and versions.
+- **CSP of `'self'` with no `'unsafe-inline'`**, plus nosniff, DENY framing and
+  a locked-down permissions policy.
+- **The road graph is loaded with `json`, never `pickle`.**
+- Interactive API docs are not served.
+
+---
+
+## Tests
+
+`python -m pytest tests/ -q` — 62 tests covering the validator and feasibility
+gate, congestion exposure, FIFO under every overlay type, the travel-time matrix
+and both invalidation directions, bucket placement, commitment safety through
+10,000 randomised decodes and through ALNS destroy/repair, the three-case
+acceptance rule, vehicle-state advance, overlay composition, emergency routing
+and corridor windows, API bounds, API-key enforcement, and the boot endpoint.
 
 ---
 
@@ -493,48 +387,48 @@ server and exits non-zero if any fails. **31/31 pass** with a key configured,
 
 ```
 routepulse/
-  graph.py        road network, time-dependent costs, FIFO check, overlays
-  costs.py        bucketed travel-time matrix, scoped + full rebuild
+  graph.py        road network, time-dependent costs, closures + timed overlays
+  costs.py        bucketed matrix, profile-aligned buckets, scoped invalidation
   model.py        Instance / Vehicle / Customer / Solution / weights
-  validator.py    independent feasibility gate + THE official scorer + churn
-  dynamic.py      commitment freeze, events, 3-case acceptance, latency, energy
-  emergency.py    ambulance dispatch, hospital selection, green corridor
+  validator.py    feasibility gate + THE official scorer + congestion exposure
+  dynamic.py      simulation clock, events, vehicle advance, global deadline
+  emergency.py    ambulance dispatch, per-edge corridor windows
   energy.py       CPU + battery-sensor energy accounting
   solvers/
-    heuristics.py greedy insertion (emergency mode) + 2-opt/relocate/swap
-    qpso.py       QPSO, random keys, Prins Split, memetic loop
+    heuristics.py greedy insertion + 2-opt/relocate/swap
+    qpso.py       QPSO and the classical PSO control, random keys, Prins Split
     alns.py       Traffic-Aware ALNS  [adopted]
     sb.py         Simulated Bifurcation over an Ising embedding  [not adopted]
-    ortools_baseline.py  fair comparator (same constraints, same budget)
-server/           FastAPI + zero-dependency canvas control tower
-  static/         index.html + app.css + app.js, no external assets
+    ortools_baseline.py  fair comparator
+server/           FastAPI + zero-dependency canvas control sheet
 scripts/          bench, latency, convergence, scenarios, sb_eval, energy,
-                  security_check
-FORMULATION.md    Deliverable 2, including the Ising reduction
-DEMO.md           the five-minute walkthrough
+                  oracles, security_check, freeze_env, report
+tests/            62 unit tests
+FORMULATION.md    Deliverable 2, incl. the Ising reduction and exposure term
+DEMO.md           the demo script
 ```
 
 ---
 
 ## Known limitations
 
-- **The road network is real; the demand is not.** OpenStreetMap Bengaluru,
-  6,420 junctions. Delivery stops are synthetic and the traffic profile is a
-  plausible hand-authored time-of-day model, **not measured data**. Free
-  city-scale real-time traffic for an Indian city is not obtainable.
-- **OR-Tools beats us on static solution quality by 12.5%** (p < 0.0001). We do
-  not claim otherwise. The claim is the dynamic, commitment-aware recovery path
-  with end-to-end latency accounting.
-- **The swarm layer's measured contribution is +0.3% and not significant**
-  (p = 0.98). QPSO is retained as the required quantum-inspired module and its
-  contribution is reported, not assumed.
+- **The road network is real; the demand is not.** Delivery stops are synthetic
+  and the traffic profile is a hand-authored time-of-day model, **not measured
+  data**. Nothing in this project calls it live traffic.
+- **The 500 ms target holds at demo scale and not above it.** Measured at 30, 60
+  and 100 stops and reported per size. The matrix dominates; the escape hatch
+  is known and has not been built.
+- **OR-Tools beats us on static solution quality.** The claim is the dynamic
+  path, not static quality.
+- **The quantum-inspired update rule is not carrying the system.** It is
+  statistically indistinguishable from classical PSO on an identical decoder and
+  budget. It is retained as the required Deliverable 3 module and its
+  contribution is reported rather than assumed.
 - **"Quantum-inspired" means classical.** No quantum hardware, no quantum
-  speedup. Simulated Bifurcation is the classical limit of a quantum system —
-  a stronger claim than metaphor — and it still lost.
+  speedup.
 - **The emergency layer simulates traffic interaction, not EMS dispatch.** Crew
-  availability, clinical triage and hospital diversion are out of scope.
-  Hospital locations are synthetic and labelled as such.
+  availability, clinical triage and hospital diversion are out of scope;
+  hospital locations are synthetic and labelled as such.
 - **The server is single-tenant.** One engine in module state, so two browsers
-  share one fleet. Correct for a control tower demo, wrong for a product, and
-  written down rather than discovered later.
-- **Not built:** SUMO microsimulation. The time-of-day curve stands in for it.
+  share one fleet.
+- **No SUMO microsimulation**, and no claim depends on one.

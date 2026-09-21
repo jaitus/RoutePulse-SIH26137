@@ -55,7 +55,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from routepulse.dynamic import Engine                     # noqa: E402
 from routepulse.energy import EnergyMeter, per_day        # noqa: E402
-from routepulse.graph import RoadGraph, synthetic_grid    # noqa: E402
+from routepulse.graph import (HORIZON_LABEL, HORIZON_SECONDS,  # noqa: E402
+                              RoadGraph, synthetic_grid)
 from routepulse.model import ObjectiveWeights, random_instance  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -77,11 +78,40 @@ API_KEY = os.environ.get("ROUTEPULSE_API_KEY", "").strip()
 
 ALLOWED_ENGINES = ("emergency", "qpso", "alns", "sb", "ortools")
 
+# The OPERATIONAL path is a single engine under one global deadline -- what a
+# dispatcher actually waits for, and the only configuration the 500 ms target
+# is claimed against. The DEMO race exists so a judge can watch four engines
+# compete on identical inputs; it shares the same global deadline but is never
+# quoted as the operational number.
+OPERATIONAL_ENGINES = ("alns",)
+DEMO_ENGINES = ("emergency", "qpso", "alns", "ortools")
+MAX_ADVANCE_S = 6 * 3600.0
+
+# Travel-time matrix resolution, and the single most consequential number in
+# this file. The matrix samples edge weights at `MATRIX_BUCKETS` departure
+# times and interpolates between them; more buckets means a more faithful cost
+# model and a slower rebuild, and the rebuild is INSIDE the re-plan deadline.
+#
+# Measured against exact time-dependent Dijkstra (`scripts/oracles.py`), with
+# buckets placed where the traffic curve bends rather than evenly:
+#
+#     3 buckets   10.8% mean abs error    ~70 ms rebuild   <- the old default
+#     5 buckets    4.5% mean abs error   ~130 ms rebuild   <- chosen
+#     6 buckets    1.7% mean abs error   ~200 ms rebuild
+#
+# Six is the most accurate and it pushes the operational p95 past 500 ms. Five
+# cuts the old error by 2.4x and holds the deadline with margin. That is the
+# trade, it is re-derivable from the evidence file, and it is why the solver
+# budget below is 250 ms rather than 350: an error in the cost model is worse
+# than slightly less search, because every downstream number inherits it.
+MATRIX_BUCKETS = 5
+OPERATIONAL_BUDGET_S = 0.25
+
 app = FastAPI(title="RoutePulse", docs_url=None, redoc_url=None,
               openapi_url=None)
 
 STATE: dict = {"engine": None, "graph": None, "inst": None,
-               "events": [], "last": None, "seed": 1}
+               "last": None, "seed": 1}
 
 # One solve at a time. The engine's incumbent, matrix and overlays are mutable
 # shared state; concurrent re-plans would interleave writes to them.
@@ -178,8 +208,8 @@ def _boot(n_customers: int = 30, n_vehicles: int = 5, seed: int = 7) -> dict:
     inst = random_instance(depot, nodes, n_customers=n_customers,
                            n_vehicles=n_vehicles, capacity=110, seed=seed,
                            depot_lat=g.nodes[depot][0], depot_lon=g.nodes[depot][1])
-    eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=3)
-    STATE.update({"engine": eng, "graph": g, "inst": inst, "events": [],
+    eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=MATRIX_BUCKETS)
+    STATE.update({"engine": eng, "graph": g, "inst": inst,
                   "last": None, "source": src})
     return {"graph_source": src, "nodes": len(g.nodes),
             "customers": inst.n, "vehicles": len(inst.vehicles),
@@ -204,18 +234,37 @@ def _routes_payload() -> list[dict]:
     # beside a red CLOSURE is a legend nobody can read at a glance.
     palette = ["#1a5fb4", "#7b2d8e", "#00807a", "#4a3fb5", "#8a5a2b",
                "#b0117a", "#2b6d8f", "#5c6f00"]
+    veh = {v.id: v for v in inst.vehicles}
     for i, r in enumerate(sol.routes):
         if not r.customer_ids:
             continue
+        # THE DRAWN ROUTE MUST BE THE SCORED ROUTE.
+        #
+        # This used to walk the graph with a hard-coded `t += 300` between
+        # stops, so the geometry on screen was a shortest path at times the
+        # optimiser never evaluated. Under a time-of-day profile that is not a
+        # cosmetic difference: a leg departing at a fabricated 5-minute cadence
+        # can pick a different road than the same leg departing at its real
+        # ETA, and the map would then be showing a route nobody scored.
+        #
+        # Now the departure time for each leg comes from the accepted plan's
+        # own arrival times, on the engine's graph (the service-area subgraph
+        # the optimiser actually routes on), so the picture and the number
+        # describe the same journey.
+        eg = eng.g
+        v = veh.get(r.vehicle_id)
         poly: list[list[float]] = []
-        node = inst.depot_node
-        t = 0.0
-        for cid in r.customer_ids:
-            seg = g.path(node, cid, t)
-            poly.extend(g.coords(seg))
-            t += 300
+        node = v.start_node if v is not None else inst.depot_node
+        t = max(inst.horizon_start, v.available_at) if v is not None else 0.0
+        for cid, arr in zip(r.customer_ids, r.arrival_times):
+            seg = eg.path(node, cid, t)
+            poly.extend(eg.coords(seg))
+            c = cust.get(cid)
+            # depart the stop when the plan says it is finished there
+            if arr != float("inf"):
+                t = arr + (c.service_time if c else 0.0)
             node = cid
-        poly.extend(g.coords(g.path(node, inst.depot_node, t)))
+        poly.extend(eg.coords(eg.path(node, inst.depot_node, t)))
         out.append({
             "vehicle": r.vehicle_id,
             "color": palette[i % len(palette)],
@@ -239,17 +288,25 @@ def _closed_payload() -> list[list[list[float]]]:
     eng = STATE.get("engine")
     g: RoadGraph = eng.g if eng is not None else STATE["graph"]
     segs = []
-    for key, mult in g.incident.items():
+
+    def seg(key: str, code: int):
         u, v = (int(x) for x in key.split("->"))
         if u in g.nodes and v in g.nodes:
             segs.append([[g.nodes[u][0], g.nodes[u][1]],
-                         [g.nodes[v][0], g.nodes[v][1]],
-                         [1 if mult == float("inf") else 0]])
-    for key in g.corridor:                       # green corridor overlay
-        u, v = (int(x) for x in key.split("->"))
-        if u in g.nodes and v in g.nodes:
-            segs.append([[g.nodes[u][0], g.nodes[u][1]],
-                         [g.nodes[v][0], g.nodes[v][1]], [2]])
+                         [g.nodes[v][0], g.nodes[v][1]], [code]])
+
+    # 1 = hard closure, 0 = soft congestion, 2 = green corridor. Closures are
+    # emitted from their own set, so an edge that is both closed and congested
+    # draws as CLOSED -- matching what the cost layer actually does now.
+    for key in g.closed:
+        seg(key, 1)
+    for key, ovs in g.overlays.items():
+        if key in g.closed:
+            continue
+        if any(o.kind == "corridor" for o in ovs):
+            seg(key, 2)
+        else:
+            seg(key, 0)
     return segs
 
 
@@ -273,6 +330,10 @@ def _summary() -> dict:
         "feasible": sol.feasible,
         "violations": sol.violations[:4],
         "late_stops": late,
+        # The explicit congestion term, now measured rather than zeroed.
+        "congestion_exposure_min": round(sol.congestion_exposure / 60.0, 1),
+        "sim_clock_s": round(eng.now, 1),
+        "horizon": HORIZON_LABEL,
         "vehicles_used": sum(1 for r in sol.routes if r.customer_ids),
         "vehicles_total": len(inst.vehicles),
         "customers": inst.n,
@@ -303,14 +364,32 @@ def health():
 
 
 @app.get("/api/boot")
-def boot(request: Request,
-         n: int = Query(30, ge=3, le=MAX_CUSTOMERS),
-         k: int = Query(5, ge=1, le=MAX_VEHICLES),
-         seed: int = Query(7, ge=0, le=10_000)):
+def boot(request: Request):
+    """READ-ONLY description of the current instance.
+
+    This used to be a GET that took n/k/seed and rebuilt the whole simulation
+    — an unauthenticated public GET that destroyed state, which is both a CSRF
+    target and a violation of GET's contract. It now only reports. Rebuilding
+    is POST /api/reset, behind the API key.
+
+    It will boot a default instance if the server has none yet, because a
+    cold server with no engine has nothing to describe; that is idempotent and
+    carries no caller-supplied parameters.
+    """
     rate_limit(request, RATE_LIMIT_CHEAP, "cheap")
-    with SOLVE_LOCK:
-        info = _boot(n, k, seed)
-    return {"ok": True, **info}
+    if STATE["engine"] is None:
+        with SOLVE_LOCK:
+            _boot()
+    eng: Engine = STATE["engine"]
+    return {"ok": True,
+            "graph_source": STATE.get("source", "?"),
+            "nodes": len(eng.g.nodes),
+            "customers": STATE["inst"].n,
+            "vehicles": len(STATE["inst"].vehicles),
+            "matrix_build_s": round(eng.tm.build_seconds, 3),
+            "sim_clock_s": round(eng.now, 1),
+            "horizon": HORIZON_LABEL,
+            "planned": eng.incumbent is not None}
 
 
 @app.get("/api/graph")
@@ -342,6 +421,57 @@ def graph(request: Request):
             "bounds": [min(lats), min(lons), max(lats), max(lons)]}
 
 
+def _resolve_engines(engines: str, race: bool) -> tuple[str, ...]:
+    if engines:
+        chosen = tuple(e for e in
+                       (x.strip().lower() for x in engines.split(","))
+                       if e in ALLOWED_ENGINES)
+        if not chosen:
+            raise HTTPException(422, "no recognised engine requested")
+        return chosen
+    return DEMO_ENGINES if race else OPERATIONAL_ENGINES
+
+
+def _replan_payload(chosen: tuple[str, ...], budget: float) -> dict:
+    """Run one re-plan and shape the response.
+
+    Shared by POST /api/replan and POST /api/ambulance, because an ambulance
+    dispatch that does not end in a fleet decision is only half an event.
+    Caller must already hold SOLVE_LOCK.
+    """
+    eng: Engine = STATE["engine"]
+    res = eng.replan(budget=budget, seed=STATE["seed"], engines=chosen)
+    STATE["last"] = res
+    eng.log_event("replan",
+                  ("Re-plan accepted" if res.accepted else "Re-plan held")
+                  + f" · {res.total_ms:.0f} ms")
+    return {
+        "accepted": res.accepted,
+        "case": res.case,
+        "incumbent_was_feasible": res.incumbent_feasible,
+        "total_ms": res.total_ms,
+        "stages_ms": res.stages_ms,
+        "candidates": res.candidates,
+        "explanation": res.explanation,
+        "churn": res.churn,
+        "alert": res.alert,
+        "energy": res.energy,
+        "energy_at_scale": per_day(res.energy.get("mwh", 0.0), 400),
+        "convergence": res.telemetry.get("convergence", [])[-80:],
+        "matrix_pairs_rebuilt": res.telemetry.get("matrix_pairs_rebuilt"),
+        "fifo_violations": res.telemetry.get("fifo_violations"),
+        "sb": res.telemetry.get("sb"),
+        "alns": res.telemetry.get("alns"),
+        "engines": list(chosen),
+        "budget_s": budget,
+        "summary": _summary(),
+        "routes": _routes_payload(),
+        "closed": _closed_payload(),
+        "events": eng.event_log,
+        "sim_clock_s": round(eng.now, 1),
+    }
+
+
 @app.post("/api/plan")
 def plan(request: Request,
          budget: float = Query(1.2, gt=0.05, le=MAX_BUDGET_S),
@@ -360,7 +490,8 @@ def plan(request: Request,
                                      time.process_time() - cpu0)
     return {"ok": True, "plan_ms": round(ms, 1), "summary": _summary(),
             "routes": _routes_payload(), "closed": _closed_payload(),
-            "events": STATE["events"], "energy": energy.to_dict()}
+            "events": eng.event_log, "energy": energy.to_dict(),
+            "sim_clock_s": round(eng.now, 1)}
 
 
 class AmbulanceIn(BaseModel):
@@ -371,20 +502,31 @@ class AmbulanceIn(BaseModel):
 
 @app.post("/api/ambulance")
 def ambulance(a: AmbulanceIn, request: Request,
+              budget: float = Query(OPERATIONAL_BUDGET_S, gt=0.05, le=MAX_BUDGET_S),
+              engines: str = Query("", max_length=80),
+              recover: bool = True,
               x_api_key: str | None = Header(default=None)):
-    """Dispatch an ambulance and open the green corridor.
+    """Dispatch an ambulance, open the corridor, AND recover the fleet.
 
-    Returns BOTH sides of the trade: what priority saved the ambulance and what
-    it cost the delivery fleet. Priority is not free and the blueprint is
-    explicit that both numbers get reported.
+    ONE ACTION, THE WHOLE EVENT. The previous flow dispatched the ambulance,
+    published the corridor, and then waited for the operator to notice and
+    press Re-plan. That is not a dynamic system reacting to an emergency; it
+    is a system that needs to be told twice. The corridor is a cost-layer
+    change, a cost-layer change invalidates ETAs, and invalidated ETAs demand a
+    re-plan -- so the chain runs to completion here.
+
+    Returns BOTH sides of the trade: what priority saved the ambulance and
+    what it cost the delivery fleet. Priority is not free and both numbers get
+    reported.
     """
+    if not _in_bounds(a.lat, a.lon):
+        raise HTTPException(422, "coordinate outside the served network")
+    chosen = _resolve_engines(engines, True)
     require_key(x_api_key)
     rate_limit(request, RATE_LIMIT_SOLVE, "solve")
     eng: Engine = STATE["engine"]
     if eng is None:
         raise HTTPException(400, "no plan yet")
-    if not _in_bounds(a.lat, a.lon):
-        raise HTTPException(422, "coordinate outside the served network")
     with SOLVE_LOCK:
         if not eng.ambulances:
             eng.seed_ambulances(2)
@@ -394,17 +536,17 @@ def ambulance(a: AmbulanceIn, request: Request,
         d["leg_a"] = eng.g.coords(d.pop("leg_a_nodes", []))
         d["leg_b"] = eng.g.coords(d.pop("leg_b_nodes", []))
         d["scene"] = [a.lat, a.lon]
-        STATE["events"].append({"kind": "ambulance", "lat": a.lat, "lon": a.lon,
-                                "label": f"Ambulance {d['unit']} → {d['hospital']}",
-                                "edges": d["corridor_edges"],
-                                "t": round(time.time(), 2)})
-        d["closed"] = _closed_payload()
-        d["events"] = STATE["events"]
         d["hospitals"] = [{"name": h.name, "lat": h.lat, "lon": h.lon,
                            "tier": h.tier} for h in eng.hospitals]
         d["units"] = [{"name": u.name,
                        "lat": eng.g.nodes[u.node][0], "lon": eng.g.nodes[u.node][1]}
                       for u in eng.ambulances if u.node in eng.g.nodes]
+        # ---- the fleet reacts, in the same request
+        if recover and eng.incumbent is not None:
+            d["recovery"] = _replan_payload(chosen, budget)
+        d["closed"] = _closed_payload()
+        d["events"] = eng.event_log
+        d["sim_clock_s"] = round(eng.now, 1)
     return d
 
 
@@ -419,13 +561,13 @@ class EventIn(BaseModel):
 @app.post("/api/event")
 def event(ev: EventIn, request: Request,
           x_api_key: str | None = Header(default=None)):
+    if not _in_bounds(ev.lat, ev.lon):
+        raise HTTPException(422, "coordinate outside the served network")
     require_key(x_api_key)
     rate_limit(request, RATE_LIMIT_SOLVE, "solve")
     eng: Engine = STATE["engine"]
     if eng is None:
         raise HTTPException(400, "no plan yet")
-    if not _in_bounds(ev.lat, ev.lon):
-        raise HTTPException(422, "coordinate outside the served network")
     with SOLVE_LOCK:
         if ev.kind == "closure":
             keys = eng.apply_closure(ev.lat, ev.lon, ev.radius_m)
@@ -433,61 +575,30 @@ def event(ev: EventIn, request: Request,
         else:
             keys = eng.apply_congestion(ev.lat, ev.lon, ev.multiplier, ev.radius_m)
             label = f"Congestion ×{ev.multiplier:.0f} · {len(keys)} edges"
-        STATE["events"].append({"kind": ev.kind, "lat": ev.lat, "lon": ev.lon,
-                                "label": label, "edges": len(keys),
-                                "t": round(time.time(), 2)})
+        eng.log_event(ev.kind, label, lat=ev.lat, lon=ev.lon, edges=len(keys))
     return {"ok": True, "label": label, "edges": len(keys),
-            "closed": _closed_payload(), "events": STATE["events"]}
+            "closed": _closed_payload(), "events": eng.event_log,
+            "sim_clock_s": round(eng.now, 1)}
 
 
 @app.post("/api/replan")
 def replan(request: Request,
-           budget: float = Query(0.35, gt=0.05, le=MAX_BUDGET_S),
+           budget: float = Query(OPERATIONAL_BUDGET_S, gt=0.05, le=MAX_BUDGET_S),
            race: bool = True,
            engines: str = Query("", max_length=80),
            x_api_key: str | None = Header(default=None)):
+    # REQUEST VALIDATION BEFORE STATE VALIDATION. A malformed request is 422
+    # whether or not the server happens to hold a plan; returning 400 "no plan
+    # yet" for an unparseable engine list told the caller the wrong thing and
+    # made the API's own contract untestable.
+    chosen = _resolve_engines(engines, race)
     require_key(x_api_key)
     rate_limit(request, RATE_LIMIT_SOLVE, "solve")
     eng: Engine = STATE["engine"]
     if eng is None:
         raise HTTPException(400, "no plan yet")
-
-    if engines:
-        chosen = tuple(e for e in
-                       (x.strip().lower() for x in engines.split(","))
-                       if e in ALLOWED_ENGINES)
-        if not chosen:
-            raise HTTPException(422, "no recognised engine requested")
-    else:
-        chosen = ("emergency", "qpso", "ortools") if race else ("qpso",)
-
     with SOLVE_LOCK:
-        res = eng.replan(budget=budget, seed=STATE["seed"], engines=chosen)
-        STATE["last"] = res
-        payload = {
-            "ok": True,
-            "accepted": res.accepted,
-            "case": res.case,
-            "incumbent_was_feasible": res.incumbent_feasible,
-            "total_ms": res.total_ms,
-            "stages_ms": res.stages_ms,
-            "candidates": res.candidates,
-            "explanation": res.explanation,
-            "churn": res.churn,
-            "alert": res.alert,
-            "energy": res.energy,
-            "energy_at_scale": per_day(res.energy.get("mwh", 0.0), 400),
-            "convergence": res.telemetry.get("convergence", [])[-80:],
-            "matrix_pairs_rebuilt": res.telemetry.get("matrix_pairs_rebuilt"),
-            "fifo_violations": res.telemetry.get("fifo_violations"),
-            "sb": res.telemetry.get("sb"),
-            "alns": res.telemetry.get("alns"),
-            "engines": list(chosen),
-            "summary": _summary(),
-            "routes": _routes_payload(),
-            "closed": _closed_payload(),
-            "events": STATE["events"],
-        }
+        payload = {"ok": True, **_replan_payload(chosen, budget)}
     return payload
 
 
@@ -502,6 +613,127 @@ def reset(request: Request,
     with SOLVE_LOCK:
         info = _boot(n, k, seed)
     return {"ok": True, **info}
+
+
+@app.post("/api/advance")
+def advance(request: Request,
+            minutes: float = Query(20.0, gt=0, le=MAX_ADVANCE_S / 60.0),
+            x_api_key: str | None = Header(default=None)):
+    """Move the simulation clock forward and let the fleet actually drive.
+
+    Without this the fleet never moved: every re-plan restarted from the depot
+    with the full customer list, so "dynamic" only ever described the cost
+    layer, never the vehicles. Advancing marks stops whose planned arrival has
+    passed as served, moves each vehicle to its last completed stop, and sets
+    its earliest availability — so the next re-plan starts from where the fleet
+    is.
+    """
+    require_key(x_api_key)
+    rate_limit(request, RATE_LIMIT_SOLVE, "solve")
+    eng: Engine = STATE["engine"]
+    if eng is None:
+        raise HTTPException(400, "no plan yet")
+    with SOLVE_LOCK:
+        info = eng.advance(minutes * 60.0)
+        payload = {"ok": True, **info,
+                   "sim_clock_s": round(eng.now, 1),
+                   "sim_clock_min": round(eng.now / 60.0, 1),
+                   "summary": _summary(), "routes": _routes_payload(),
+                   "closed": _closed_payload(), "events": eng.event_log,
+                   "vehicles": [{"id": v.id, "at": v.start_node,
+                                 "available_min": round(v.available_at / 60, 1)}
+                                for v in STATE["inst"].vehicles]}
+    return payload
+
+
+# ---------------------------------------------------- mock ambulance feed
+#
+# THE SIMULATION CONTRACT, STATED ONCE AND NOT FUDGED (reviewer P0-06).
+#
+# RoutePulse does NOT detect ambulances and does not integrate a live 112
+# feed. It CONSUMES an external emergency feed. In this prototype that feed is
+# these endpoints — a controlled mock a demo operator or a script drives. In a
+# deployment the same endpoints would be fed by an authorised GPS/AVL or
+# dispatch-system integration.
+#
+# SUMO/TraCI is deliberately NOT part of this build. The blueprint named it as
+# the simulation layer; it was never implemented, and shipping a claim that
+# nothing backs is worse than shipping a smaller honest one. The ambulance is
+# a controlled external-event simulation and every document now says so.
+
+class TelemetryIn(BaseModel):
+    ambulance_id: int = Field(..., ge=0, le=64)
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    status: str = Field("enroute", pattern="^(idle|enroute|onscene|transport)$")
+
+
+@app.get("/api/mock/ambulances")
+def mock_list(request: Request):
+    rate_limit(request, RATE_LIMIT_CHEAP, "cheap")
+    eng: Engine = STATE["engine"]
+    if eng is None:
+        raise HTTPException(400, "no instance")
+    if not eng.ambulances:
+        eng.seed_ambulances(2)
+    return {"ok": True, "clock_s": round(eng.now, 1),
+            "units": [{"id": u.id, "name": u.name, "node": u.node,
+                       "lat": eng.g.nodes[u.node][0] if u.node in eng.g.nodes else None,
+                       "lon": eng.g.nodes[u.node][1] if u.node in eng.g.nodes else None,
+                       "busy_until_s": u.busy_until}
+                      for u in eng.ambulances]}
+
+
+@app.post("/api/mock/ambulance/telemetry")
+def mock_telemetry(t: TelemetryIn, request: Request,
+                   x_api_key: str | None = Header(default=None)):
+    """Publish an ambulance position from the external feed."""
+    require_key(x_api_key)
+    rate_limit(request, RATE_LIMIT_SOLVE, "solve")
+    eng: Engine = STATE["engine"]
+    if eng is None:
+        raise HTTPException(400, "no instance")
+    if not _in_bounds(t.lat, t.lon):
+        raise HTTPException(422, "coordinate outside the served network")
+    with SOLVE_LOCK:
+        if not eng.ambulances:
+            eng.seed_ambulances(2)
+        unit = next((u for u in eng.ambulances if u.id == t.ambulance_id), None)
+        if unit is None:
+            raise HTTPException(422, "unknown ambulance id")
+        unit.node = eng.g.nearest_node(t.lat, t.lon)
+        eng.log_event("telemetry", f"{unit.name} reported {t.status}",
+                      lat=t.lat, lon=t.lon)
+    return {"ok": True, "unit": unit.name, "node": unit.node,
+            "sim_clock_s": round(eng.now, 1)}
+
+
+@app.post("/api/mock/ambulance/complete")
+def mock_complete(request: Request,
+                  tag: str = Query("", max_length=48),
+                  x_api_key: str | None = Header(default=None)):
+    """End the call and expire the green corridor.
+
+    Corridor expiry is an event with teeth: it LOWERS costs, which scoped
+    cache invalidation cannot reason about, so it forces a full matrix rebuild
+    on the next re-plan rather than leaving stale cheap-looking ETAs behind.
+    """
+    require_key(x_api_key)
+    rate_limit(request, RATE_LIMIT_SOLVE, "solve")
+    eng: Engine = STATE["engine"]
+    if eng is None:
+        raise HTTPException(400, "no instance")
+    with SOLVE_LOCK:
+        removed = eng.expire_corridor(tag=tag or None) if tag \
+            else eng.g.clear_overlays(kind="corridor")
+        if removed and not tag:
+            eng.changed_decrease = True
+            eng.log_event("corridor_expired",
+                          f"Green corridor expired ({removed} edges)")
+        for u in eng.ambulances:
+            u.busy_until = None
+    return {"ok": True, "edges_released": removed,
+            "closed": _closed_payload(), "events": eng.event_log}
 
 
 # ------------------------------------------------------------------ evidence

@@ -379,3 +379,60 @@ encodes.
 The conclusion that follows is in §5 of the README and it is a negative one: an
 Ising solver verified to find exact ground states is beaten by 2-opt on this
 problem, because the embedding drops the term that dominates the real cost.
+
+---
+
+## 12. Congestion exposure — the term that used to be multiplied by zero
+
+Section 3 has always carried a $\gamma$-weighted congestion term in the
+objective. Until the reviewer's audit the scorer computed it and then multiplied
+it by `0.0`. The formulation was therefore describing an objective the code did
+not optimise, which is a worse failure than omitting the term: a reader checking
+the maths against the source would have found the term present in both and still
+been wrong about the system.
+
+The problem was never the weight. It was that "exposure" needs a definition you
+can compute and reproduce, and nobody had written one.
+
+### 12.1 Definition
+
+Let $\tau^{\text{live}}_{ij}(t)$ be the travel time of leg $(i,j)$ departing at
+time $t$ under **every active overlay** — incidents, congestion, green
+corridors — and let $\tau^{\text{base}}_{ij}(t)$ be the same leg at the same
+departure time under the **time-of-day profile alone**. Then for a plan $x$ with
+realised departure times $t_{ij}(x)$,
+
+$$
+E(x) \;=\; \sum_{(i,j)\,\in\,x}\Big[\,\tau^{\text{live}}_{ij}\big(t_{ij}(x)\big)
+      \;-\; \tau^{\text{base}}_{ij}\big(t_{ij}(x)\big)\Big]^{+} .
+$$
+
+In words: the seconds this plan is predicted to spend **because of events**.
+The objective of §3 then uses $\gamma E(x)$ with $\gamma = 0.5$.
+
+### 12.2 Why this definition and not another
+
+1. **It is zero on an undisturbed network.** $\tau^{\text{live}} =
+   \tau^{\text{base}}$ when no overlay is active, so the term cannot silently
+   inflate every score and make benchmark arms incomparable. Verified in
+   `tests/test_validator.py`.
+2. **It is additive over legs** and needs no second shortest-path computation:
+   $\tau^{\text{base}}$ comes from a baseline travel-time matrix built once at
+   engine start and never rebuilt, because the base profile does not change.
+   Cost at run time is $O(\text{legs})$.
+3. **It is not lateness.** A route can sit in traffic for twenty minutes and
+   still hit every time window. The fleet paid for those twenty minutes in
+   fuel, driver hours and risk either way, and a plan that routes around a jam
+   should score better than one that sits in it even when both arrive on time.
+   The two terms measure different things and are weighted separately.
+4. **It is a forecast, like everything else in the objective.** It is computed
+   from predicted departure times against the same cost layer the plan was
+   optimised on, so it is internally consistent with the ETAs the dispatcher
+   sees.
+
+### 12.3 What it is not
+
+It is not a measurement of observed congestion. Nothing in this system observes
+traffic; the base profile is a hand-authored time-of-day model and the overlays
+are injected events. $E(x)$ is the model's own estimate of how much the events
+cost this plan, and it is exactly as real as the model is.

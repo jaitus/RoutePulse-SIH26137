@@ -15,6 +15,7 @@ import json
 import math
 import os
 import time
+from dataclasses import dataclass
 
 import requests
 
@@ -30,6 +31,15 @@ HEADERS = {
     "User-Agent": "RoutePulse/1.0 (SIH26137 academic prototype)",
     "Accept": "application/json",
 }
+
+# THE PLANNER HORIZON. One declared value, used by the graph's time-of-day
+# profile, the travel-time matrix, instance generation, event timestamps and the
+# UI. Previously the profile ran 0-14 h while the matrix defaulted to 12 h, so
+# every query past 12 h silently clamped to the last bucket -- a two-hour blind
+# spot nobody would have seen in a demo that never ran that long.
+# 08:00 -> 22:00 local, expressed as seconds from horizon start.
+HORIZON_SECONDS = 14 * 3600.0
+HORIZON_LABEL = "08:00-22:00 local"
 
 # OSM highway types we keep, with a nominal free-flow speed in km/h.
 DRIVABLE = {
@@ -51,6 +61,34 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
+@dataclass
+class Overlay:
+    """One timed soft cost multiplier on one edge.
+
+    `t0 == t1 == 0` means "always on" -- an observed slowdown with no declared
+    expiry, which is what a congestion incident is until someone clears it. A
+    corridor, by contrast, is a FORECAST over a bounded forward window and
+    decays linearly to 1.0 at t1 so it cannot break FIFO.
+    """
+    mult: float
+    t0: float = 0.0
+    t1: float = 0.0
+    kind: str = "congestion"        # congestion | corridor
+    decay: bool = False             # linear decay to 1.0 across the window
+    tag: str = ""                   # event id, so one event can be cleared
+
+    def active(self, t: float) -> float:
+        """Multiplier contributed at time t; 1.0 when this overlay is dormant."""
+        if self.t1 <= self.t0:                      # untimed: always on
+            return self.mult
+        if t < self.t0 or t > self.t1:
+            return 1.0
+        if not self.decay:
+            return self.mult
+        w = (self.t1 - t) / (self.t1 - self.t0)
+        return 1.0 + (self.mult - 1.0) * w
+
+
 class RoadGraph:
     """Directed weighted graph with time-dependent travel times.
 
@@ -61,9 +99,26 @@ class RoadGraph:
     def __init__(self) -> None:
         self.nodes: dict[int, tuple[float, float]] = {}
         self.adj: dict[int, list[tuple[int, float, float, str]]] = {}
-        # dynamic overlays, keyed by edge "u->v"
-        self.incident: dict[str, float] = {}     # multiplier, >=1, or inf for closed
-        self.corridor: dict[str, tuple[float, float, float]] = {}  # key -> (mult, t0, t1)
+
+        # ------------------------------------------------------------------
+        # DYNAMIC WEIGHT STATE. Two kinds, deliberately separate.
+        #
+        # A physical closure and a soft slowdown are not the same object and
+        # must not share a slot. The previous design kept one `incident`
+        # multiplier map where a closure stored inf -- so a congestion event
+        # landing on a closed edge overwrote the inf and REOPENED a road that
+        # was supposed to be impassable. Nothing in the system would have said
+        # so; the plan would simply have routed through a closed street.
+        #
+        #   closed   hard physical state. Set-membership, no magnitude, and
+        #            nothing except an explicit reopen clears it.
+        #   overlays a LIST of timed soft multipliers per edge. Composition is
+        #            the product of the active ones, which is deterministic and
+        #            order-independent -- two jams on one street compound, and
+        #            removing one does not silently remove the other.
+        # ------------------------------------------------------------------
+        self.closed: set[str] = set()
+        self.overlays: dict[str, list[Overlay]] = {}
         self._tod_profile = self._default_tod_profile()
 
     # ---------------------------------------------------------------- build
@@ -109,50 +164,182 @@ class RoadGraph:
                 return m0 + w * (m1 - m0)
         return 1.0
 
-    def edge_multiplier(self, key: str, t: float) -> float:
-        """Combined effective multiplier: time-of-day x incident x corridor."""
+    def bucket_times(self, k: int) -> list[float]:
+        """Where to sample the time-dependent profile with only k snapshots.
+
+        Uniform spacing is the obvious choice and it is a bad one. The
+        time-of-day curve peaks at 09:00 and 17:00; three uniform buckets over
+        a 14-hour horizon land at 08:00, 15:00 and 22:00 and miss BOTH peaks,
+        so the matrix interpolates 1.02 where the real multiplier is 1.45.
+        Measured against exact time-dependent Dijkstra that was a 10.9% mean
+        absolute error on travel times -- larger than any solver improvement
+        the benchmark has ever shown, sitting underneath every number.
+
+        So buckets are placed where the curve actually bends. Endpoints
+        first, then greedily add the profile knot with the worst current
+        linear-interpolation error until the budget is spent. Deterministic,
+        costs nothing extra at run time, and it is the same k snapshots.
+        """
+        knots = [t for t, _m in self._tod_profile if t <= HORIZON_SECONDS]
+        if k <= 1:
+            return [0.0]
+        chosen = [knots[0], knots[-1]]
+        if k >= len(knots):
+            # More buckets than the profile has knots: take every knot, then
+            # fill the gaps uniformly. Always EXACTLY k, sorted -- the matrix
+            # indexes bucket_t positionally and a longer list would silently
+            # desynchronise it from self.buckets.
+            extra = sorted(set(knots)
+                           | {HORIZON_SECONDS * i / (k - 1) for i in range(k)})
+            if len(extra) <= k:
+                return extra
+            keep = {knots[0], knots[-1]}
+            for t in extra:
+                if len(keep) >= k:
+                    break
+                keep.add(t)
+            return sorted(keep)
+
+        def interp(t: float, pts: list[float]) -> float:
+            """Multiplier the matrix WOULD infer at t from the chosen buckets."""
+            pts = sorted(pts)
+            if t <= pts[0]:
+                return self.tod_multiplier(pts[0])
+            if t >= pts[-1]:
+                return self.tod_multiplier(pts[-1])
+            for a, b in zip(pts, pts[1:]):
+                if a <= t <= b:
+                    w = (t - a) / (b - a) if b > a else 0.0
+                    return (self.tod_multiplier(a)
+                            + w * (self.tod_multiplier(b) - self.tod_multiplier(a)))
+            return self.tod_multiplier(t)
+
+        while len(chosen) < k:
+            worst, worst_t = -1.0, None
+            for t in knots:
+                if t in chosen:
+                    continue
+                err = abs(self.tod_multiplier(t) - interp(t, chosen))
+                if err > worst:
+                    worst, worst_t = err, t
+            if worst_t is None:
+                break
+            chosen.append(worst_t)
+        return sorted(chosen)
+
+    def edge_multiplier(self, key: str, t: float,
+                        use_overlays: bool = True) -> float:
+        """Effective multiplier at time t: time-of-day x every active overlay.
+
+        CLOSURE IS CHECKED FIRST AND SEPARATELY. It is a hard physical state,
+        not the largest of a set of multipliers, so no overlay -- however it is
+        ordered or timed -- can reopen a closed road.
+
+        `use_overlays=False` returns the BASELINE profile: time-of-day only,
+        no incidents and no corridor. That is what the congestion-exposure term
+        in the official scorer is measured against.
+        """
+        if use_overlays and key in self.closed:
+            return math.inf
         m = self.tod_multiplier(t)
-        inc = self.incident.get(key)
-        if inc is not None:
-            if math.isinf(inc):
-                return math.inf          # physically closed
-            m *= inc
-        cor = self.corridor.get(key)
-        if cor is not None:
-            mult, t0, t1 = cor
-            if t0 <= t <= t1:
-                # linear decay to 1.0 at t1 so the overlay cannot break FIFO
-                w = (t1 - t) / (t1 - t0) if t1 > t0 else 1.0
-                m *= 1.0 + (mult - 1.0) * w
+        if not use_overlays:
+            return m
+        for ov in self.overlays.get(key, ()):
+            m *= ov.active(t)
         return m
 
     def travel_time(self, u: int, v: int, length_m: float,
-                    speed_kmh: float, key: str, depart_t: float) -> float:
+                    speed_kmh: float, key: str, depart_t: float,
+                    use_overlays: bool = True) -> float:
         """TIME-DEPENDENT edge traversal time, seconds."""
-        m = self.edge_multiplier(key, depart_t)
+        m = self.edge_multiplier(key, depart_t, use_overlays)
         if math.isinf(m):
             return math.inf
         base = length_m / (speed_kmh * 1000.0 / 3600.0)
         return base * m
 
-    def close_edge(self, key: str) -> None:
-        self.incident[key] = math.inf
+    # --------------------------------------------------------- hard closures
 
-    def congest_edge(self, key: str, multiplier: float) -> None:
-        self.incident[key] = max(1.0, multiplier)
+    def close_edge(self, key: str) -> None:
+        self.closed.add(key)
+
+    def reopen_edge(self, key: str) -> None:
+        """The ONLY way a closure is lifted. Deliberately explicit."""
+        self.closed.discard(key)
+
+    def is_closed(self, key: str) -> bool:
+        return key in self.closed
+
+    # ----------------------------------------------------------- soft overlays
+
+    def add_overlay(self, key: str, mult: float, t0: float = 0.0, t1: float = 0.0,
+                    kind: str = "congestion", decay: bool = False,
+                    tag: str = "") -> None:
+        self.overlays.setdefault(key, []).append(
+            Overlay(mult=max(1.0, mult), t0=t0, t1=t1, kind=kind,
+                    decay=decay, tag=tag))
+
+    def congest_edge(self, key: str, multiplier: float, tag: str = "") -> None:
+        self.add_overlay(key, multiplier, kind="congestion", tag=tag)
+
+    def open_corridor(self, items, multiplier: float = 3.0,
+                      t0: float = 0.0, t1: float = 0.0, tag: str = "") -> None:
+        """Publish a green corridor.
+
+        `items` is either a list of edge keys (one shared window, the old
+        behaviour) or a list of `(key, start, end)` triples -- PER-EDGE
+        occupancy windows derived from when the ambulance is actually predicted
+        to be on that edge. The per-edge form is the correct one: a delivery
+        vehicle crossing the far end of the corridor twenty minutes after the
+        ambulance has already passed should pay nothing, and under a single
+        route-level window it paid the full penalty.
+        """
+        for item in items:
+            if isinstance(item, (tuple, list)) and len(item) >= 3:
+                k, a, b = item[0], float(item[1]), float(item[2])
+            else:
+                k, a, b = item, t0, t1
+            self.add_overlay(k, multiplier, t0=a, t1=b, kind="corridor",
+                             decay=True, tag=tag)
+
+    def clear_overlays(self, kind: str | None = None, tag: str | None = None) -> int:
+        """Expire overlays. Returns how many were removed.
+
+        Corridor expiry is an event in its own right -- it changes the cost
+        layer and therefore invalidates cached travel times -- so it returns a
+        count the caller can act on rather than silently mutating state.
+        """
+        removed = 0
+        for k in list(self.overlays):
+            keep = [o for o in self.overlays[k]
+                    if (kind is not None and o.kind != kind)
+                    or (tag is not None and o.tag != tag)]
+            if kind is None and tag is None:
+                keep = []
+            removed += len(self.overlays[k]) - len(keep)
+            if keep:
+                self.overlays[k] = keep
+            else:
+                self.overlays.pop(k, None)
+        return removed
 
     def clear_incidents(self) -> None:
-        self.incident.clear()
+        """Full reset of BOTH kinds. Used only between scenarios."""
+        self.closed.clear()
+        self.overlays.clear()
 
-    def open_corridor(self, keys: list[str], multiplier: float,
-                      t0: float, t1: float) -> None:
-        for k in keys:
-            self.corridor[k] = (multiplier, t0, t1)
+    def overlay_keys(self, kind: str | None = None) -> set[str]:
+        if kind is None:
+            return set(self.overlays)
+        return {k for k, ovs in self.overlays.items()
+                if any(o.kind == kind for o in ovs)}
 
-    def clear_corridor(self) -> None:
-        self.corridor.clear()
+    def dynamic_keys(self) -> set[str]:
+        """Every edge carrying a closure or an overlay -- the only edges whose
+        effective profile can differ from the base time-of-day curve."""
+        return set(self.closed) | set(self.overlays)
 
-    def check_fifo(self, samples: int = 60, horizon: float = 14 * 3600.0,
+    def check_fifo(self, samples: int = 60, horizon: float = None,
                    only_keys: set[str] | None = None) -> list[str]:
         """Assert leaving later never means arriving earlier, on the EFFECTIVE
         profile (after all overlays). Returns a list of violating edge keys.
@@ -164,7 +351,7 @@ class RoadGraph:
         edges carrying an overlay is both sound and ~400x cheaper.
         """
         bad: list[str] = []
-        step = horizon / samples
+        step = (HORIZON_SECONDS if horizon is None else horizon) / samples
         for u, out in self.adj.items():
             for (v, length_m, spd, key) in out:
                 if only_keys is not None and key not in only_keys:
@@ -185,7 +372,7 @@ class RoadGraph:
     # ------------------------------------------------------------ shortest path
 
     def dijkstra_tt(self, src: int, targets: set[int], depart_t: float,
-                    want_tree: bool = False):
+                    want_tree: bool = False, use_overlays: bool = True):
         """Time-dependent one-to-many shortest travel time (FIFO network).
 
         With want_tree=True also returns the shortest-path tree (child->parent),
@@ -208,7 +395,8 @@ class RoadGraph:
                 out[u] = d
                 remaining.discard(u)
             for (v, length_m, spd, key) in self.adj.get(u, ()):
-                tt = self.travel_time(u, v, length_m, spd, key, depart_t + d)
+                tt = self.travel_time(u, v, length_m, spd, key, depart_t + d,
+                                      use_overlays=use_overlays)
                 if math.isinf(tt):
                     continue
                 nd = d + tt

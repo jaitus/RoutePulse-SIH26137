@@ -51,7 +51,10 @@ def main() -> None:
     ap.add_argument("--trials", type=int, default=20)
     ap.add_argument("--stops", type=int, default=30)
     ap.add_argument("--vehicles", type=int, default=5)
-    ap.add_argument("--budget", type=float, default=0.35)
+    ap.add_argument("--budget", type=float, default=0.25)
+    ap.add_argument("--scale", default="",
+                    help="comma-separated stop counts, e.g. 30,60,100 — "
+                         "reviewer asks for latency SCALING, not one size")
     args = ap.parse_args()
 
     g, src = load_graph()
@@ -83,7 +86,7 @@ def main() -> None:
             inst = random_instance(depot, nodes, n_customers=args.stops,
                                    n_vehicles=args.vehicles, capacity=110, seed=t,
                                    depot_lat=g.nodes[depot][0], depot_lon=g.nodes[depot][1])
-            eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=3)
+            eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=5)
             eng.initial_plan(budget=0.8, seed=t)
             # inject an incident near a random served stop
             c = inst.customers[t % len(inst.customers)]
@@ -111,6 +114,42 @@ def main() -> None:
             "stages_p95": {k: pct(v, .95) for k, v in stages.items()},
             "raw_totals": totals,
         }
+
+    # ---- scaling sweep. One instance size is an anecdote about one instance
+    # size, and the matrix is O(n^2 x buckets), so this is exactly where the
+    # design either holds or stops holding. Reported per size, not averaged.
+    if args.scale:
+        report["scaling"] = {}
+        print("--- operational path (ALNS) vs instance size ---")
+        header = f"{'stops':>7}{'p50':>9}{'p95':>9}{'max':>9}"
+        print(header + f"{'matrix p95':>12}{'solve p95':>11}{'<500ms':>9}")
+        for n in [int(x) for x in args.scale.split(",") if x.strip()]:
+            totals, mat, solve = [], [], []
+            trials = max(5, args.trials // 2)
+            for t in range(trials):
+                inst = random_instance(depot, nodes, n_customers=n,
+                                       n_vehicles=max(3, n // 6), capacity=110,
+                                       seed=t, depot_lat=g.nodes[depot][0],
+                                       depot_lon=g.nodes[depot][1])
+                eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=5)
+                eng.initial_plan(budget=0.8, seed=t)
+                c = inst.customers[t % len(inst.customers)]
+                eng.apply_closure(c.lat, c.lon, radius_m=300)
+                res = eng.replan(budget=args.budget, seed=t, engines=("alns",))
+                totals.append(res.total_ms)
+                mat.append(res.stages_ms.get("matrix_rebuild", 0.0))
+                solve.append(res.stages_ms.get("solve", 0.0))
+            ok = pct(totals, .95) < 500.0
+            print(f"{n:>7}{pct(totals,.5):>9.0f}{pct(totals,.95):>9.0f}"
+                  f"{max(totals):>9.0f}{pct(mat,.95):>12.0f}"
+                  f"{pct(solve,.95):>11.0f}{('yes' if ok else 'NO'):>9}")
+            report["scaling"][str(n)] = {
+                "stops": n, "vehicles": max(3, n // 6), "trials": trials,
+                "total_p50": pct(totals, .5), "total_p95": pct(totals, .95),
+                "total_max": max(totals), "matrix_p95": pct(mat, .95),
+                "solve_p95": pct(solve, .95), "meets_500ms": ok,
+            }
+        print()
 
     out = os.path.join(ROOT, "out", "latency.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)

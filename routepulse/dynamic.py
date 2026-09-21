@@ -46,7 +46,7 @@ class ReplanResult:
 
 class Engine:
     def __init__(self, graph: RoadGraph, inst: Instance, weights: ObjectiveWeights,
-                 matrix_buckets: int = 4) -> None:
+                 matrix_buckets: int = 5) -> None:
         self.inst = inst
         self.w = weights
         self.nodes = [inst.depot_node] + [c.id for c in inst.customers]
@@ -56,11 +56,46 @@ class Engine:
         # strand any stop, so this can only make things faster, never wrong.
         from .graph import subgraph_around
         self.g = subgraph_around(graph, self.nodes, margin_m=900.0)
+        self.buckets = matrix_buckets
         self.tm = TimeMatrix(self.g, self.nodes, buckets=matrix_buckets)
+        # BASELINE matrix: time-of-day only, no incidents, no corridor. The
+        # congestion-exposure term in the official scorer is the difference
+        # between the live matrix and this one, so "exposure" means a measured
+        # number of extra seconds rather than a placeholder. The base profile
+        # never changes, so this is built once and never rebuilt.
+        self.tm_base = TimeMatrix(self.g, self.nodes, buckets=matrix_buckets,
+                                  use_overlays=False)
+        self.tm.base = self.tm_base
         self.incumbent: Solution | None = None
+
+        # ------------------------------------------------------------------
+        # THE SIMULATION CLOCK. One authoritative origin, in seconds from the
+        # start of the planning horizon, shared by every event timestamp,
+        # corridor window, vehicle availability time and ETA.
+        #
+        # This used to be three clocks that disagreed: ambulance dispatch
+        # defaulted to now=0.0, UI events were stamped with wall-clock
+        # time.time(), and the planner horizon was relative simulation time. A
+        # corridor opened "now" therefore covered a window the fleet's ETAs
+        # were not even expressed in.
+        # ------------------------------------------------------------------
+        self.now: float = 0.0
+        self.event_log: list[dict] = []
+
         # edge keys whose cost CHANGED since the last matrix build. Tracked so
         # the re-plan can rebuild only the affected rows instead of everything.
         self.changed_keys: set[str] = set()
+        # Scoped invalidation is only sound for cost INCREASES: a newly cheaper
+        # path need never have been in the old shortest-path tree. Any decrease
+        # -- a reopened road, an expired corridor -- sets this and forces a full
+        # rebuild. Cheap insurance against silently stale ETAs.
+        self.changed_decrease: bool = False
+        # ALNS operator weights, persisted per EVENT TYPE across re-plans
+        # (reviewer P1-04). A closure and an ambulance corridor are different
+        # problems and must not share a prior.
+        self.alns_memory: dict[str, dict] = {}
+        self.last_event_type: str = "generic"
+        self.last_event_keys: set[str] = set()
         # --- emergency layer (blueprint sections 4-5) -------------------------
         self.ems = EmergencyService(self.g)
         lat0 = sum(self.g.nodes[n][0] for n in self.nodes) / len(self.nodes)
@@ -82,7 +117,7 @@ class Engine:
 
     def dispatch_ambulance(self, lat: float, lon: float, severity: int = 2,
                            corridor_mult: float = DEFAULT_CORRIDOR_MULT,
-                           now: float = 0.0) -> dict:
+                           now: float | None = None) -> dict:
         """Dispatch, publish the green corridor, and MEASURE BOTH SIDES.
 
         Priority is not free. The corridor that speeds the ambulance up slows
@@ -92,9 +127,12 @@ class Engine:
         """
         if not self.ambulances:
             self.seed_ambulances()
+        # ONE clock. The dispatch time is simulation time, the same origin the
+        # fleet's ETAs and the corridor windows are expressed in.
+        now = self.now if now is None else float(now)
         node = self.g.nearest_node(lat, lon)
-        call = EmergencyCall(id=int(now), node=node, severity=severity,
-                             dispatch_time=now)
+        call = EmergencyCall(id=len(self.event_log) + 1, node=node,
+                             severity=severity, dispatch_time=now)
 
         res = self.ems.dispatch(call, self.ambulances, self.hospitals)
         self.last_emergency = res
@@ -108,7 +146,9 @@ class Engine:
 
         t0, t1 = res.corridor_window
         self.apply_corridor(res.leg_a_nodes + res.leg_b_nodes,
-                            multiplier=corridor_mult, t0=t0, window=t1 - t0)
+                            multiplier=corridor_mult, t0=t0, window=t1 - t0,
+                            edge_windows=res.corridor_windows,
+                            tag=f"corridor-{call.id}")
 
         # the corridor changed edge costs, so the matrix is stale for the
         # comparison below -- rebuild before measuring, or the "cost of
@@ -126,8 +166,15 @@ class Engine:
         if unit is not None:
             unit.busy_until = now + res.total_seconds
 
+        self.log_event("ambulance",
+                       f"Ambulance {unit.name if unit else res.unit_id} → "
+                       f"{res.hospital}", lat=lat, lon=lon,
+                       edges=len(res.corridor_keys), call_id=call.id)
+
         return {
             "ok": True,
+            "call_id": call.id,
+            "corridor_tag": f"corridor-{call.id}",
             "unit": unit.name if unit else f"AMB-{res.unit_id}",
             "hospital": res.hospital,
             "to_scene_min": round(res.leg_a_seconds / 60, 1),
@@ -138,6 +185,13 @@ class Engine:
             "path_ms": round(res.latency_ms, 1),
             "corridor_edges": len(res.corridor_keys),
             "corridor_window_min": [round(t0 / 60, 1), round(t1 / 60, 1)],
+            # Per-edge occupancy is the whole point of P0-04: report the SPREAD
+            # of individual edge windows, not one route-level blanket.
+            "corridor_edge_windows": len(res.corridor_windows),
+            "corridor_edge_window_s": (
+                round(sum(b - a for _k, a, b in res.corridor_windows)
+                      / len(res.corridor_windows), 1)
+                if res.corridor_windows else None),
             "fleet_cost_before": None if before is None else round(before, 1),
             "fleet_cost_after": None if after is None else round(after, 1),
             "cost_of_priority": None if cost_of_priority is None
@@ -186,7 +240,9 @@ class Engine:
         if improver == "alns":
             from .solvers.alns import alns_with_telemetry
             sol, _ = alns_with_telemetry(self.inst, base, self.tm, self.w,
-                                         time.perf_counter() + budget, seed=seed)
+                                         time.perf_counter() + budget, seed=seed,
+                                         memory=self.alns_memory,
+                                         event_type="initial")
         else:
             sol, _ = solve_qpso(self.inst, self.tm, self.w, time_budget=budget,
                                 seed=seed, warm_start=base)
@@ -255,6 +311,8 @@ class Engine:
             self.g.close_edge(k)
             closed.append(k)
             self.changed_keys.add(k)
+        self.last_event_type = "closure"
+        self.last_event_keys = set(closed)
 
         # Connectivity guard, progressive. The previous version reopened only
         # edges TOUCHING a stranded stop, but a stop is usually stranded by
@@ -267,7 +325,7 @@ class Engine:
             batch = max(1, len(closed) // 8)
             while closed and self._stranded(protected):
                 for k in closed[-batch:]:
-                    self.g.incident.pop(k, None)
+                    self.g.reopen_edge(k)
                     self.changed_keys.discard(k)
                 closed = closed[:-batch]
         return closed
@@ -296,28 +354,168 @@ class Engine:
             for w, key in nbrs:
                 if w in seen:
                     continue
-                if math.isinf(self.g.incident.get(key, 1.0)):
+                if self.g.is_closed(key):
                     continue
                 seen.add(w)
                 stack.append(w)
         return seen
 
     def apply_congestion(self, lat: float, lon: float, multiplier: float = 4.0,
-                         radius_m: float = 420.0) -> list[str]:
+                         radius_m: float = 420.0, tag: str = "") -> list[str]:
+        """Add a soft slowdown. It composes with any closure already on the
+        edge instead of overwriting it -- a jam on a closed road leaves the
+        road closed, which is the whole point of P0-07."""
         keys = self.g.edges_near(lat, lon, radius_m)
+        tag = tag or f"jam-{len(self.event_log) + 1}"
         for k in keys:
-            self.g.congest_edge(k, multiplier)
+            self.g.congest_edge(k, multiplier, tag=tag)
             self.changed_keys.add(k)
+        self.last_event_type = "congestion"
+        self.last_event_keys = set(keys)
         return keys
 
+    def clear_congestion(self, tag: str | None = None) -> int:
+        """Lift a jam. A cost DECREASE, so it forces a full matrix rebuild."""
+        n = self.g.clear_overlays(kind="congestion", tag=tag)
+        if n:
+            self.changed_decrease = True
+            self.log_event("jam_cleared", f"Congestion cleared ({n} edges)")
+        return n
+
+    def reopen_roads(self, keys: list[str]) -> int:
+        """Lift a closure. Also a decrease, also a full rebuild."""
+        n = 0
+        for k in keys:
+            if self.g.is_closed(k):
+                self.g.reopen_edge(k)
+                n += 1
+        if n:
+            self.changed_decrease = True
+            self.log_event("reopened", f"Road reopened ({n} edges)")
+        return n
+
     def apply_corridor(self, path_nodes: list[int], multiplier: float = 3.0,
-                       t0: float = 0.0, window: float = 1800.0) -> list[str]:
-        keys = []
-        for a, b in zip(path_nodes, path_nodes[1:]):
-            keys.append(f"{a}->{b}")
-        self.g.open_corridor(keys, multiplier, t0, t0 + window)
+                       t0: float = 0.0, window: float = 1800.0,
+                       edge_windows: list[tuple[str, float, float]] | None = None,
+                       tag: str = "corridor") -> list[str]:
+        """Publish the green corridor as PER-EDGE occupancy windows.
+
+        The old version applied one route-level window to every edge, which
+        says the far end of a 5 km corridor is blocked from the moment the
+        ambulance leaves the depot. It is not: the ambulance reaches that edge
+        minutes later and clears it seconds after that. A delivery vehicle
+        crossing before or after that slot should pay nothing, and under the
+        route-level window it paid in full.
+
+        `edge_windows` carries (edge_key, start, end) derived from the
+        predicted ambulance arrival time at each edge. The keys-only form is
+        retained for callers that genuinely want one shared window.
+        """
+        if edge_windows:
+            self.g.open_corridor(edge_windows, multiplier=multiplier, tag=tag)
+            keys = [k for k, _a, _b in edge_windows]
+        else:
+            keys = [f"{a}->{b}" for a, b in zip(path_nodes, path_nodes[1:])]
+            self.g.open_corridor(keys, multiplier, t0, t0 + window, tag=tag)
         self.changed_keys.update(keys)
+        self.last_event_type = "ambulance"
+        self.last_event_keys = set(keys)
         return keys
+
+    def expire_corridor(self, tag: str = "corridor") -> int:
+        """Corridor expiry is an EVENT, not a quiet cleanup.
+
+        It lowers costs, which scoped invalidation cannot reason about, so it
+        flags a full matrix rebuild. Returns how many overlays were removed.
+        """
+        n = self.g.clear_overlays(kind="corridor", tag=tag)
+        if n:
+            self.changed_decrease = True
+            self.log_event("corridor_expired", f"Green corridor expired ({n} edges)")
+        return n
+
+    # ----------------------------------------------------------- the clock
+
+    def log_event(self, kind: str, label: str, **extra) -> dict:
+        """Every event is stamped with the ONE simulation clock."""
+        ev = {"kind": kind, "label": label, "t": round(self.now, 2), **extra}
+        self.event_log.append(ev)
+        return ev
+
+    def advance(self, seconds: float) -> dict:
+        """Move the simulation clock forward and let the fleet actually drive.
+
+        Until this existed, "dynamic re-planning" always restarted from the
+        depot with the full customer set: the incumbent changed but the world
+        never did. Advancing the clock does what a real shift does --
+
+          * stops whose planned arrival has passed are SERVED and leave the
+            instance, because a delivered parcel is not pending work;
+          * each vehicle's position becomes its last served stop and its
+            earliest availability becomes the moment it finished there;
+          * the travel-time matrix is rebuilt over the remaining node set.
+
+        Re-planning then starts from where the fleet is, not from the depot.
+        """
+        self.now = max(self.now, self.now + max(0.0, seconds))
+        if self.incumbent is None:
+            return {"served": 0, "remaining": self.inst.n, "now": self.now}
+
+        veh = {v.id: v for v in self.inst.vehicles}
+        served: list[int] = []
+        cust = {c.id: c for c in self.inst.customers}
+
+        for r in self.incumbent.routes:
+            v = veh.get(r.vehicle_id)
+            if v is None:
+                continue
+            last_node, last_t = None, None
+            keep: list[int] = []
+            for cid, arr in zip(r.customer_ids, r.arrival_times):
+                c = cust.get(cid)
+                if c is None or math.isinf(arr):
+                    keep.append(cid)
+                    continue
+                done_at = arr + c.service_time
+                if done_at <= self.now:
+                    served.append(cid)
+                    last_node, last_t = cid, done_at
+                else:
+                    keep.append(cid)
+            r.customer_ids = keep
+            if last_node is not None:
+                v.start_node = last_node
+                v.available_at = max(v.available_at, last_t)
+            if v.committed_customer in served:
+                v.committed_customer = None
+
+        if served:
+            done = set(served)
+            self.inst.customers = [c for c in self.inst.customers
+                                   if c.id not in done]
+            self.inst.__post_init__()
+            self._rebuild_node_set()
+            self.log_event("advance",
+                           f"Clock +{seconds / 60:.0f} min · {len(served)} "
+                           f"stop(s) completed", served=len(served))
+        return {"served": len(served), "remaining": self.inst.n, "now": self.now}
+
+    def _rebuild_node_set(self) -> None:
+        """The matrix is indexed by depot + pending customers. When customers
+        leave the instance that index changes, so the matrix and its baseline
+        are rebuilt together -- keeping one and not the other would make the
+        congestion-exposure term compare two different node sets."""
+        self.nodes = [self.inst.depot_node] + [c.id for c in self.inst.customers]
+        extra = {v.start_node for v in self.inst.vehicles}
+        for n in sorted(extra):
+            if n not in self.nodes and n in self.g.nodes:
+                self.nodes.append(n)
+        self.tm = TimeMatrix(self.g, self.nodes, buckets=self.buckets)
+        self.tm_base = TimeMatrix(self.g, self.nodes, buckets=self.buckets,
+                                  use_overlays=False)
+        self.tm.base = self.tm_base
+        self.changed_keys.clear()
+        self.changed_decrease = False
 
     # -------------------------------------------------------------- re-plan
 
@@ -340,16 +538,23 @@ class Engine:
         # Only edges carrying a time-varying overlay can break FIFO; the base
         # profile is verified once at load. Scanning all 16,413 edges here cost
         # 400 ms of a 500 ms budget and told us nothing.
-        overlay_keys = set(self.g.incident) | set(self.g.corridor)
+        overlay_keys = self.g.dynamic_keys()
         fifo_bad = self.g.check_fifo(samples=12, only_keys=overlay_keys)
         stages["fifo_assert"] = (time.perf_counter() - t) * 1000
 
         # ---- stage 3: travel-time matrix rebuild (INSIDE the budget)
         t = time.perf_counter()
-        if scoped_nodes:
+        if self.changed_decrease:
+            # A cost DECREASE -- a reopened road, an expired corridor, a jam
+            # lifted. Scoped invalidation is unsound here: a newly cheaper path
+            # need never have appeared in the old shortest-path tree, so there
+            # is nothing to match against. Full rebuild, and say so.
+            self.tm.rebuild_all()
+            self.changed_decrease = False
+        elif scoped_nodes:
             self.tm.rebuild_rows(scoped_nodes)
         elif self.changed_keys:
-            # Every event we support is a cost INCREASE (closure, congestion,
+            # Every remaining event is a cost INCREASE (closure, congestion,
             # corridor), so a source's row is stale only if one of the changed
             # edges is in its shortest-path tree. That is provably sufficient
             # and typically touches a handful of rows instead of all of them.
@@ -375,26 +580,52 @@ class Engine:
             self.incumbent = inc
         stages["evaluate_incumbent"] = (time.perf_counter() - t) * 1000
 
-        # ---- stage 5: solve (every engine, same budget)
+        # ---- stage 5: solve, under ONE GLOBAL DEADLINE
+        #
+        # This used to give every engine its own `budget`, so a four-engine
+        # race took four budgets plus overhead and the "500 ms target" was
+        # quietly a per-engine target. A dispatcher does not wait per engine.
+        # Now `budget` is the wall-clock allowance for the WHOLE solve stage,
+        # shared across the engines that were asked for, and every engine is
+        # additionally clamped by the hard deadline so an overrun in one
+        # cannot eat another's time.
         t = time.perf_counter()
         candidates: list[dict] = []
         best: Solution | None = None
         telemetry: dict = {}
 
+        deadline = t + budget
+        left = [len(engines)]          # engines still to run
+
+        def remaining() -> float:
+            return max(0.0, deadline - time.perf_counter())
+
+        def slot() -> float:
+            """This engine's slice of what is LEFT, never past the deadline.
+
+            Dividing the remaining time rather than the original budget is
+            self-correcting: an engine that overruns its slice shrinks every
+            later slice instead of pushing the whole stage past the deadline.
+            A fixed 1/N share compounds overruns; this one absorbs them.
+            """
+            n = max(1, left[0])
+            left[0] -= 1
+            return max(0.01, remaining() / n)
+
         if "emergency" in engines:
             te = time.perf_counter()
             s = greedy_insertion(self.inst, self.tm, self.w, seed)
             s = local_search(self.inst, s, self.tm, self.w,
-                             time.perf_counter() + budget * 0.25)
+                             min(deadline, time.perf_counter() + slot() * 0.6))
             s = score(self.inst, s, self.tm, self.w, self.incumbent)
             candidates.append(self._cand("Emergency heuristic", s,
                                          (time.perf_counter() - te) * 1000))
             if s.feasible and (best is None or s.score < best.score):
                 best = s
 
-        if "qpso" in engines:
+        if "qpso" in engines and remaining() > 0.02:
             tq = time.perf_counter()
-            s, tel = solve_qpso(self.inst, self.tm, self.w, time_budget=budget,
+            s, tel = solve_qpso(self.inst, self.tm, self.w, time_budget=slot(),
                                 seed=seed, warm_start=self.incumbent,
                                 previous=self.incumbent)
             telemetry = tel
@@ -403,13 +634,16 @@ class Engine:
             if s.feasible and (best is None or s.score < best.score):
                 best = s
 
-        if "alns" in engines:
+        if "alns" in engines and remaining() > 0.02:
             ta = time.perf_counter()
             from .solvers.alns import alns_with_telemetry
             base = self.incumbent.copy() if self.incumbent is not None else \
                 greedy_insertion(self.inst, self.tm, self.w, seed)
-            s, atel = alns_with_telemetry(self.inst, base, self.tm, self.w,
-                                          time.perf_counter() + budget, seed=seed)
+            s, atel = alns_with_telemetry(
+                self.inst, base, self.tm, self.w,
+                min(deadline, time.perf_counter() + slot()), seed=seed,
+                event_keys=set(self.last_event_keys),
+                memory=self.alns_memory, event_type=self.last_event_type)
             s = score(self.inst, s, self.tm, self.w, self.incumbent)
             telemetry["alns"] = atel
             candidates.append(self._cand("Traffic-Aware ALNS", s,
@@ -417,15 +651,15 @@ class Engine:
             if s.feasible and (best is None or s.score < best.score):
                 best = s
 
-        if "sb" in engines:
+        if "sb" in engines and remaining() > 0.02:
             tb = time.perf_counter()
             try:
                 from .solvers.sb import sb_resequence
                 base = (best or self.incumbent)
                 if base is not None:
-                    s, stel = sb_resequence(self.inst, base.copy(), self.tm, self.w,
-                                            time.perf_counter() + budget * 0.5,
-                                            seed=seed)
+                    s, stel = sb_resequence(
+                        self.inst, base.copy(), self.tm, self.w,
+                        min(deadline, time.perf_counter() + slot()), seed=seed)
                     s = score(self.inst, s, self.tm, self.w, self.incumbent)
                     telemetry["sb"] = stel
                     candidates.append(self._cand("Simulated Bifurcation", s,
@@ -440,7 +674,9 @@ class Engine:
             try:
                 from .solvers.ortools_baseline import solve_ortools
                 to = time.perf_counter()
-                s = solve_ortools(self.inst, self.tm, self.w, time_budget=budget)
+                s = (solve_ortools(self.inst, self.tm, self.w,
+                                   time_budget=slot())
+                     if remaining() > 0.02 else None)
                 if s is not None:
                     s = score(self.inst, s, self.tm, self.w, self.incumbent)
                     candidates.append(self._cand("OR-Tools", s,

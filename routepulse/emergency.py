@@ -89,6 +89,9 @@ class EmergencyResult:
     baseline_seconds: float = 0.0     # same route WITHOUT priority
     corridor_keys: list[str] = field(default_factory=list)
     corridor_window: tuple[float, float] = (0.0, 0.0)
+    # PER-EDGE occupancy: (edge_key, window_start, window_end), derived from
+    # when the ambulance is actually predicted to be on that edge.
+    corridor_windows: list[tuple[str, float, float]] = field(default_factory=list)
     latency_ms: float = 0.0
     unreachable: bool = False
 
@@ -156,6 +159,36 @@ class EmergencyService:
             path.append(prev[path[-1]])
         return dist[dst], list(reversed(path))
 
+    def edge_windows(self, path: list[int], start_t: float,
+                     lead_s: float = 120.0, tail_s: float = 180.0,
+                     priority: bool = True) -> list[tuple[str, float, float]]:
+        """Predicted occupancy window for each edge of an ambulance path.
+
+        Walk the path forward at the emergency cost model and record when the
+        vehicle enters and leaves each edge. The window is padded by `lead_s`
+        before (traffic clearing ahead of the siren) and `tail_s` after (the
+        queue taking a while to re-form), which is what actually makes a
+        corridor a corridor rather than an instant.
+
+        This is the difference between "the whole route is blocked for 25
+        minutes" and "this edge is busy between t+4:10 and t+9:30". The second
+        one is the claim we can defend.
+        """
+        out: list[tuple[str, float, float]] = []
+        t = start_t
+        for a, b in zip(path, path[1:]):
+            edge = next(((L, spd, key) for (v, L, spd, key)
+                         in self.g.adj.get(a, ()) if v == b), None)
+            if edge is None:
+                continue
+            L, spd, key = edge
+            secs = self._edge_seconds(a, b, L, spd, key, t, priority)
+            if math.isinf(secs):
+                break
+            out.append((key, max(0.0, t - lead_s), t + secs + tail_s))
+            t += secs
+        return out
+
     # --------------------------------------------------------------- dispatch
 
     def dispatch(self, call: EmergencyCall, units: list[Ambulance],
@@ -211,6 +244,10 @@ class EmergencyService:
             for a, b in zip(seq, seq[1:]):
                 keys.append(f"{a}->{b}")
 
+        # Per-edge occupancy, on the same clock as the dispatch itself.
+        windows = (self.edge_windows(best_path, call.dispatch_time)
+                   + self.edge_windows(best_hpath, scene_done))
+
         return EmergencyResult(
             call_id=call.id, unit_id=best_unit.id, hospital=best_h.name,
             leg_a_nodes=best_path, leg_b_nodes=best_hpath,
@@ -218,7 +255,9 @@ class EmergencyService:
             total_seconds=best_a + best_b, baseline_seconds=baseline,
             corridor_keys=keys,
             corridor_window=(call.dispatch_time,
-                             call.dispatch_time + DEFAULT_CORRIDOR_WINDOW),
+                             max([w[2] for w in windows], default=
+                                 call.dispatch_time + DEFAULT_CORRIDOR_WINDOW)),
+            corridor_windows=windows,
             latency_ms=(time.perf_counter() - t0) * 1000,
         )
 

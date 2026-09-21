@@ -1,0 +1,26 @@
+{
+ "python": "3.14.0",
+ "python_build": "tags/v3.14.0:ebf955d Oct  7 2025 10:15:03",
+ "implementation": "CPython",
+ "os": "Windows 11",
+ "machine": "AMD64",
+ "processor": "AMD64 Family 23 Model 24 Stepping 1, AuthenticAMD",
+ "cpu_count": 8,
+ "packages": {
+  "fastapi": "0.136.1",
+  "uvicorn": "0.46.0",
+  "ortools": "9.15.6755",
+  "requests": "2.31.0",
+  "networkx": "3.6.1",
+  "numpy": "2.4.0",
+  "scipy": "1.17.1",
+  "pydantic": "2.13.3",
+  "starlette": "1.0.0",
+  "pytest": "9.1.1",
+  "httpx": "0.28.1"
+ },
+ "git_commit": "06b082581905be67cea831b9844f8cacec786d7d",
+ "git_branch": "main",
+ "git_dirty": true,
+ "sumo": false
+}

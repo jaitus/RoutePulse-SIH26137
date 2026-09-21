@@ -101,6 +101,78 @@ def validate(inst: Instance, sol: Solution) -> tuple[bool, list[str]]:
     return (len(v) == 0), v
 
 
+def congestion_exposure(inst: Instance, sol: Solution, tm: TimeMatrix) -> float:
+    """Seconds this plan spends inside degraded traffic. MEASURED, not assumed.
+
+    The objective has always carried a gamma-weighted congestion term, and it
+    was multiplied by zero — a placeholder that made the term decorative and
+    the formulation untrue. The problem was that "exposure" needs a definition
+    you can compute and reproduce, not an adjective.
+
+    The definition used here:
+
+        exposure(plan) = SUM over legs of  max(0, tt_live - tt_baseline)
+
+    where `tt_live` is the travel time under every active overlay (incidents,
+    corridor) and `tt_baseline` is the same leg at the same departure time
+    under the time-of-day profile ALONE. The difference is exactly the extra
+    seconds the plan is predicted to spend because of events, which is the
+    thing the term was always supposed to price.
+
+    Two properties make it usable as an objective component:
+
+      * it is ZERO on an undisturbed network, so it cannot quietly inflate
+        every score and make benchmark arms incomparable;
+      * it is strictly additive over legs and needs no second Dijkstra — the
+        baseline matrix is built once at engine start and never rebuilt,
+        because the base profile does not change.
+
+    Note this is DIFFERENT from lateness. A route can be badly congested and
+    still hit every window; the fleet still paid for the congestion in fuel,
+    driver hours and risk, and a plan that avoids a jam should score better
+    than one that sits in it even when both arrive on time.
+    """
+    base = getattr(tm, "base", None)
+    if base is None:
+        return 0.0
+    cust = {c.id: c for c in inst.customers}
+    veh = {v.id: v for v in inst.vehicles}
+    total = 0.0
+    for r in sol.routes:
+        v = veh.get(r.vehicle_id)
+        if v is None or not r.customer_ids:
+            continue
+        t = max(inst.horizon_start, v.available_at)
+        node = v.start_node
+        for cid in r.customer_ids:
+            c = cust.get(cid)
+            if c is None:
+                continue
+            live = tm.tt(node, cid, t)
+            if math.isinf(live):
+                return total
+            try:
+                flat = base.tt(node, cid, t)
+            except KeyError:
+                flat = live
+            if not math.isinf(flat):
+                total += max(0.0, live - flat)
+            t += live
+            if t < c.tw_start:
+                t = c.tw_start
+            t += c.service_time
+            node = cid
+        back_live = tm.tt(node, inst.depot_node, t)
+        if not math.isinf(back_live):
+            try:
+                back_flat = base.tt(node, inst.depot_node, t)
+            except KeyError:
+                back_flat = back_live
+            if not math.isinf(back_flat):
+                total += max(0.0, back_live - back_flat)
+    return total
+
+
 def score(inst: Instance, sol: Solution, tm: TimeMatrix, w: ObjectiveWeights,
           previous: Solution | None = None) -> Solution:
     """THE official evaluation function. Every engine's plan goes through this."""
@@ -123,10 +195,7 @@ def score(inst: Instance, sol: Solution, tm: TimeMatrix, w: ObjectiveWeights,
                 late = arr - c.tw_end
                 lateness += late * (3.0 if c.priority == 1 else 1.0)
 
-    congestion = 0.0
-    for r in sol.routes:
-        congestion += max(0.0, r.travel_time)
-    congestion *= 0.0   # placeholder term; corridor exposure enters via tt()
+    congestion = congestion_exposure(inst, sol, tm)
 
     churn = churn_value(sol, previous) if previous is not None else 0.0
 

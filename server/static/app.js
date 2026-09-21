@@ -119,8 +119,17 @@ function toast(msg, bad) {
 const S = {
   graph: null, bounds: null, boot: null, routes: [], closed: [], events: [],
   summary: {}, conv: [], amb: null, last: null, planned: false,
-  hover: null, pings: [], routeT0: 0, evidence: null,
+  hover: null, pings: [], routeT0: 0, evidence: null, clock: 0,
 };
+
+/** Simulation time as a wall-clock label. The horizon starts at 08:00 local
+ *  and every event, ETA and corridor window is expressed from that origin --
+ *  one clock, which is what P0-08 was about. */
+function clockLabel(seconds) {
+  const t = 8 * 3600 + (seconds || 0);
+  const h = Math.floor(t / 3600) % 24, m = Math.floor((t % 3600) / 60);
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
 
 const CAM = { zoom: 1, x: 0, y: 0 };
 const cv = $('#map');
@@ -442,9 +451,10 @@ function titleblock() {
   const rows = [
     ['Network', (S.graph && S.graph.source) ? S.graph.source.split(' · ')[0] : '—'],
     ['Nodes', b.nodes ? b.nodes.toLocaleString() : '—'],
+    ['Clock', clockLabel(S.clock) + '  (' + (b.horizon || '08:00-22:00') + ')'],
     ['Scale', (nice >= 1000 ? (nice / 1000) + ' km' : nice + ' m') + ' / 96 px'],
     ['Zoom', '×' + CAM.zoom.toFixed(2)],
-    ['Costs', 'time-dependent, 3 buckets'],
+    ['Costs', 'time-dependent, 5 buckets'],
     ['Revision', S.events.length + ' event(s) applied'],
   ];
   for (const [k, v] of rows) {
@@ -545,9 +555,13 @@ function renderBand() {
   const s = S.summary;
   const band = $('#band');
   const cells = [
+    { id: 'clock', label: 'sim clock', unit: '' },
     { id: 'travel', label: 'fleet travel', unit: 'min' },
     { id: 'makespan', label: 'makespan', unit: 'min' },
-    { id: 'stops', label: 'stops served', unit: '' },
+    // The congestion-exposure term used to be multiplied by zero in the
+    // scorer. It is now a measured quantity, so it gets a cell: minutes this
+    // plan is predicted to spend inside degraded traffic.
+    { id: 'exposure', label: 'congestion exposure', unit: 'min' },
     { id: 'fleet', label: 'vehicles used', unit: '' },
     { id: 'gate', label: 'feasibility gate', unit: '' },
   ];
@@ -563,10 +577,12 @@ function renderBand() {
   for (const c of cells) $('#c-' + c.id).classList.remove('empty');
   roll($('#c-travel .n'), s.travel_min, f1);
   roll($('#c-makespan .n'), s.makespan_min, f1);
-  $('#c-stops .n').textContent = s.customers - (s.late_stops || 0) + '/' + s.customers;
-  $('#c-stops').parentElement && null;
-  $('#c-stops').querySelector('.l').textContent = s.late_stops
-    ? 'on time · ' + s.late_stops + ' late' : 'stops on time';
+  roll($('#c-exposure .n'), s.congestion_exposure_min || 0, f1);
+  $('#c-exposure').querySelector('.l').textContent = (s.congestion_exposure_min > 0)
+    ? 'congestion exposure' : 'exposure · clear network';
+  $('#c-clock .n').textContent = clockLabel(S.clock);
+  $('#c-clock').querySelector('.l').textContent =
+    s.customers + ' stops pending';
   $('#c-fleet .n').textContent = s.vehicles_used + '/' + s.vehicles_total;
   const gate = $('#c-gate');
   gate.className = 'cell ' + (s.feasible ? 'good' : 'bad');
@@ -885,11 +901,10 @@ function renderTimeline() {
       text: 'No incidents yet. Choose a type above the map and click a route line.' }));
     return;
   }
-  const t0 = S.events[0].t || 0;
   for (const e of S.events) {
-    track.append(h('div', { class: 'ev ' + e.kind },
+    track.append(h('div', { class: 'ev ' + (e.kind || 'generic') },
       h('div', { class: 'pip' }),
-      h('div', { class: 't', text: 'T+' + ((e.t || 0) - t0).toFixed(1) + 's' }),
+      h('div', { class: 't', text: clockLabel(e.t || 0) }),
       h('div', { class: 'lb', text: e.label })));
   }
   const sc = track.parentElement;
@@ -928,6 +943,7 @@ function applyPlan(d) {
   S.closed = d.closed || [];
   S.summary = d.summary || {};
   S.events = d.events || [];
+  if (d.sim_clock_s !== undefined) S.clock = d.sim_clock_s;
   S.routeT0 = performance.now();
   renderBand(); renderFleet(); renderTimeline(); titleblock();
 }
@@ -941,6 +957,7 @@ $('#btnPlan').addEventListener('click', async () => {
     applyPlan(d);
     S.planned = true;
     $('#btnReplan').disabled = false;
+    $('#btnAdvance').disabled = false;
     setPrimary('replan');
     renderEnergy(d.energy, null);
     $('#hint').textContent = 'Initial plan built in ' + d.plan_ms.toFixed(0)
@@ -962,9 +979,6 @@ $('#btnReplan').addEventListener('click', async () => {
     renderVerdict(d); renderLatency(d); renderRace(d);
     renderEnergy(d.energy, d.energy_at_scale);
     plot($('#conv'), S.conv, { empty: 'run a re-plan to record convergence' });
-    S.events.push({ kind: 'replan', t: Date.now() / 1000,
-      label: (d.accepted ? 'Re-plan accepted' : 'Re-plan held') + ' · '
-        + d.total_ms.toFixed(0) + ' ms' });
     renderTimeline();
     toast((d.accepted ? 'New plan accepted' : 'Incumbent held')
       + ' · ' + d.total_ms.toFixed(0) + ' ms');
@@ -980,8 +994,10 @@ $('#btnReset').addEventListener('click', async () => {
     S.conv = []; S.amb = null; S.last = null; S.planned = false; S.pings = [];
     $('#emsSection').hidden = true;
     $('#btnReplan').disabled = true;
+    $('#btnAdvance').disabled = true;
     $('#btnPlan').textContent = 'Plan routes';
     setPrimary('plan');
+    S.clock = 0;
     clear($('#band')); clear($('#latency')); clear($('#race')); clear($('#reasons'));
     renderBand(); renderFleet(); renderTimeline(); renderNetMeta();
     renderEnergy(null); titleblock();
@@ -994,6 +1010,26 @@ $('#btnReset').addEventListener('click', async () => {
     toast('Instance rebuilt');
   } catch (err) { toast('Reset failed: ' + err.message, true); }
   finally { busy(false); }
+});
+
+$('#btnAdvance').addEventListener('click', async () => {
+  const b = $('#btnAdvance');
+  working(b, true, 'advancing…');
+  busy(true, 'letting the fleet drive…');
+  try {
+    const d = await api('/api/advance?minutes=20', { method: 'POST' });
+    applyPlan(d);
+    $('#hint').textContent = d.served + ' stop(s) completed, '
+      + d.remaining + ' still pending. Vehicles are now where they actually '
+      + 'are — the next re-plan starts from there, not from the depot.';
+    toast('Clock ' + clockLabel(d.sim_clock_min * 60) + ' · '
+      + d.served + ' delivered');
+    if (d.remaining === 0) {
+      $('#btnAdvance').disabled = true;
+      toast('All stops delivered');
+    }
+  } catch (err) { toast('Advance failed: ' + err.message, true); }
+  finally { working(b, false, 'Advance clock +20 min'); busy(false); }
 });
 
 async function inject(sx, sy) {
@@ -1010,10 +1046,30 @@ async function inject(sx, sy) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lat, lon, severity: 2 }) });
       S.amb = d; S.closed = d.closed; S.events = d.events;
-      renderEms(d); renderTimeline(); titleblock();
-      $('#hint').textContent = 'Ambulance dispatched, corridor open. Press '
-        + 'Re-plan to see the fleet yield.';
-      toast(d.unit + ' → ' + d.hospital + ' · ' + d.time_saved_min + ' min saved');
+      if (d.sim_clock_s !== undefined) S.clock = d.sim_clock_s;
+      renderEms(d);
+      // ONE ACTION, THE WHOLE EVENT. The server dispatches, publishes the
+      // corridor and recovers the fleet in a single request, so the decision
+      // is already here -- the operator never has to press Re-plan to find
+      // out what the emergency did to the deliveries.
+      if (d.recovery) {
+        applyPlan(d.recovery);
+        S.last = d.recovery;
+        S.conv = d.recovery.convergence || [];
+        renderVerdict(d.recovery);
+        renderLatency(d.recovery);
+        renderRace(d.recovery);
+        renderEnergy(d.recovery.energy, d.recovery.energy_at_scale);
+        plot($('#conv'), S.conv, { empty: 'run a re-plan to record convergence' });
+        $('#hint').textContent = 'Ambulance dispatched, corridor open, and the '
+          + 'fleet has already re-planned around it — one action.';
+        toast(d.unit + ' → ' + d.hospital + ' · ' + d.time_saved_min
+          + ' min saved · fleet ' + (d.recovery.accepted ? 're-planned' : 'held'));
+      } else {
+        renderTimeline(); titleblock();
+        $('#hint').textContent = 'Ambulance dispatched and the corridor is open.';
+        toast(d.unit + ' → ' + d.hospital + ' · ' + d.time_saved_min + ' min saved');
+      }
     } catch (err) { toast('Dispatch failed: ' + err.message, true); }
     finally { busy(false); }
     return;

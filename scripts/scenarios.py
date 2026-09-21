@@ -47,7 +47,7 @@ def fresh(g, seed=4, n=30, k=5, budget=0.7):
     inst = random_instance(depot, nodes, n_customers=n, n_vehicles=k,
                            capacity=110, seed=seed,
                            depot_lat=g.nodes[depot][0], depot_lon=g.nodes[depot][1])
-    eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=3)
+    eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=5)
     eng.initial_plan(budget=budget, seed=1)
     return eng, inst, lat0, lon0
 
@@ -67,18 +67,78 @@ def record(sid, title, passed, detail, exercised):
 # --------------------------------------------------------------- scenarios
 
 def s1(g):
-    """Single road closure -> affected routes detected, plan recovers."""
-    eng, inst, lat0, lon0 = fresh(g)
-    before = eng.incumbent.score
-    c = inst.customers[3]
-    closed = eng.apply_closure(c.lat, c.lon, radius_m=400)
-    res = eng.replan(budget=0.35, seed=1, engines=("qpso",))
-    record("S1", "single road closure", res.solution.feasible, [
-        f"edges closed: {len(closed)} (denominator: this is what was exercised)",
-        f"incumbent feasible under new costs: {res.incumbent_feasible}",
+    """Closure makes the incumbent IMPOSSIBLE -> CASE 2 recovery.
+
+    This is the scenario the acceptance rule exists for, and the previous
+    version never reached it. It closed roads near an arbitrary stop, the old
+    plan stayed feasible, and the engine correctly took CASE 1 and usually
+    rejected the change for being under the epsilon threshold. A green tick on
+    a code path that was never taken is exactly the vacuous pass this harness
+    exists to catch, so it is called out and fixed rather than left green.
+
+    WHY IT IS HARD TO BREAK A PLAN ON PURPOSE. `apply_closure` protects every
+    stop's own access edges and progressively reopens if anything is stranded,
+    so a closure cannot make a delivery address unreachable -- by design, since
+    a real road closure degrades access rather than deleting a street address.
+    The remaining route to infeasibility is the one that matters operationally:
+    a PRIORITY customer missing its window.
+
+    So the scenario searches, deterministically, for an instance where a
+    priority stop has little slack, then closes and slows the roads around it
+    until the incumbent genuinely violates that deadline. Fixed seed order,
+    fixed radii, first hit wins, and the configuration used is printed.
+    """
+    chosen = None
+    for seed in range(2, 22):
+        eng, inst, lat0, lon0 = fresh(g, seed=seed)
+        arr = {cid: a for r in eng.incumbent.routes
+               for cid, a in zip(r.customer_ids, r.arrival_times)}
+        tight = [(c.tw_end - arr[c.id], c) for c in inst.customers
+                 if c.priority == 1 and c.has_tw and c.id in arr
+                 and not math.isinf(arr[c.id])]
+        if not tight:
+            continue
+        slack, victim = min(tight, key=lambda x: x[0])
+        if slack > 20 * 60:                 # too much room to break honestly
+            continue
+        for radius in (400.0, 600.0, 900.0):
+            eng, inst, lat0, lon0 = fresh(g, seed=seed)
+            closed = eng.apply_closure(victim.lat, victim.lon, radius_m=radius)
+            jam = eng.apply_congestion(victim.lat, victim.lon,
+                                       multiplier=12.0, radius_m=radius)
+            eng.tm.rebuild_all()
+            inc = score(inst, eng.incumbent.copy(), eng.tm, eng.w)
+            if not inc.feasible:
+                chosen = (seed, victim, slack, radius, len(closed), len(jam),
+                          inc.violations[:2], eng, inst)
+                break
+        if chosen:
+            break
+
+    if chosen is None:
+        record("S1", "closure makes the incumbent infeasible (CASE 2)", False,
+               ["no tested closure could break the incumbent -- CASE 2 was "
+                "never exercised, so this is not a pass"], exercised=False)
+        return
+
+    seed, victim, slack, radius, n_closed, n_jam, violations, eng, inst = chosen
+    res = eng.replan(budget=0.35, seed=1, engines=("alns",))
+    is_case2 = "CASE 2" in res.case
+    ok = is_case2 and res.accepted and res.solution.feasible
+    record("S1", "closure makes the incumbent infeasible (CASE 2)", ok, [
+        f"instance seed {seed}; priority stop {victim.id} had "
+        f"{slack / 60:.1f} min of slack",
+        f"closure radius {radius:.0f} m -> {n_closed} edges closed, "
+        f"{n_jam} edges slowed x12 (denominator: this is what was exercised)",
+        f"incumbent under new costs: INFEASIBLE "
+        f"({'; '.join(violations) if violations else 'n/a'})",
         f"case: {res.case}",
+        f"accepted with NO epsilon comparison: {res.accepted and is_case2}",
+        f"recovery feasible: {res.solution.feasible}",
+        f"congestion exposure of the accepted plan: "
+        f"{res.solution.congestion_exposure / 60:.1f} min",
         f"end-to-end: {res.total_ms:.0f} ms",
-    ], exercised=len(closed) > 0)
+    ], exercised=n_closed > 0 and not res.incumbent_feasible)
 
 
 def s2(g):
@@ -159,14 +219,15 @@ def s6(g):
     eng.apply_congestion(c.lat, c.lon, multiplier=5.0, radius_m=400)
     eng.replan(budget=0.35, seed=1, engines=("qpso",))
     before = eng.incumbent.assignment()
-    eng.g.clear_incidents()                  # the jam lifts
-    eng.changed_keys.update(eng.g.incident.keys())
-    eng.tm.rebuild_all()
+    lifted = eng.clear_congestion()          # the jam lifts: a cost DECREASE
     res = eng.replan(budget=0.35, seed=1, engines=("qpso",))
     after = res.solution.assignment()
     moved = sum(1 for k in before if before[k] != after.get(k))
     record("S6", "congestion clears without churn", moved <= 3, [
+        f"edges released when the jam lifted: {lifted}",
         f"stops reassigned after the jam lifted: {moved} of {inst.n}",
+        "a cost DECREASE: scoped invalidation is unsound, so the engine "
+        "forced a full matrix rebuild",
         f"case: {res.case}",
         "restraint is the feature here, not movement",
     ], exercised=True)
@@ -223,7 +284,7 @@ def s9(g):
         return
     legA = d1["leg_a_nodes"]
     target = [f"{a}->{b}" for a, b in zip(legA, legA[1:])][8:14]
-    eng.g.clear_corridor()
+    eng.g.clear_overlays(kind="corridor")
     for k in target:
         eng.g.close_edge(k)
     eng.ambulances[0].busy_until = None

@@ -72,20 +72,43 @@ def _free_flow_seconds(tm: TimeMatrix, a: int, b: int,
 
 class ALNS:
     def __init__(self, inst: Instance, tm: TimeMatrix, w: ObjectiveWeights,
-                 seed: int = 0) -> None:
+                 seed: int = 0, event_keys: set[str] | None = None,
+                 memory: dict | None = None, event_type: str = "generic") -> None:
         self.inst = inst
         self.tm = tm
         self.w = w
         self.rng = random.Random(seed)
         self.cust = {c.id: c for c in inst.customers}
         self.veh = {v.id: v for v in inst.vehicles}
+        # Edges the CURRENT event actually touched. The event-biased operator
+        # below uses them; without them it degrades to worst-removal, which is
+        # the correct fallback rather than a silent no-op.
+        self.event_keys = event_keys or set()
         self.destroy = [self._random_removal, self._worst_removal,
-                        self._shaw_removal, self._traffic_removal]
-        self.destroy_names = ["random", "worst", "shaw", "traffic-aware"]
+                        self._shaw_removal, self._traffic_removal,
+                        self._event_removal, self._string_removal]
+        self.destroy_names = ["random", "worst", "shaw", "traffic-aware",
+                              "event-biased", "string"]
         self.repair = [self._greedy_insert, self._regret2_insert]
         self.repair_names = ["greedy", "regret-2"]
-        self.d_weight = [1.0] * len(self.destroy)
-        self.r_weight = [1.0] * len(self.repair)
+
+        # ---- PERSISTENT OPERATOR WEIGHTS, KEYED BY EVENT TYPE (P1-04)
+        # Adaptive weights that are thrown away after every re-plan learn the
+        # same lesson from scratch on every incident. A depot sees the same
+        # KINDS of event over and over -- closures behave like closures -- so
+        # the weights are carried across re-plans in a memory the caller owns,
+        # bucketed by event type. A closure and an ambulance corridor are
+        # different problems and should not share a prior.
+        self.event_type = event_type
+        self._deadline: float | None = None
+        self.memory = memory if memory is not None else {}
+        prior = self.memory.get(event_type)
+        self.d_weight = list(prior["d"]) if prior else [1.0] * len(self.destroy)
+        self.r_weight = list(prior["r"]) if prior else [1.0] * len(self.repair)
+        if len(self.d_weight) != len(self.destroy):
+            self.d_weight = [1.0] * len(self.destroy)
+        if len(self.r_weight) != len(self.repair):
+            self.r_weight = [1.0] * len(self.repair)
         self.d_score = [0.0] * len(self.destroy)
         self.r_score = [0.0] * len(self.repair)
         self.d_used = [0] * len(self.destroy)
@@ -214,6 +237,60 @@ class ALNS:
             picks.append((vid, cid))
         return self._pull(seqs, picks)
 
+    def _event_removal(self, seqs: dict[int, list[int]], q: int) -> list[int]:
+        """Remove the stops the CURRENT EVENT actually broke (P1-03).
+
+        Traffic-aware removal ranks by a free-flow ratio, which finds roads
+        that are slow in general. This one is narrower and sharper: it takes
+        the set of edges this specific closure or corridor touched and pulls
+        out the stops whose own inbound path crosses them. After an incident
+        that is the part of the plan that is wrong, and everything else is
+        still fine.
+
+        With no event context it falls back to worst-removal rather than
+        doing nothing, so an operator that cannot apply never wastes a round.
+        """
+        if not self.event_keys:
+            return self._worst_removal(seqs, q)
+        hit: list[tuple[int, int]] = []
+        rest: list[tuple[int, int]] = []
+        for vid, s in seqs.items():
+            v = self.veh.get(vid)
+            if v is None:
+                continue
+            t = max(self.inst.horizon_start, v.available_at)
+            prev = v.start_node
+            lo = self._frozen(vid)
+            for i, cid in enumerate(s):
+                if i >= lo:
+                    path = self.tm.g.path(prev, cid, t)
+                    keys = {f"{a}->{b}" for a, b in zip(path, path[1:])}
+                    (hit if keys & self.event_keys else rest).append((vid, cid))
+                leg = self.tm.tt(prev, cid, t)
+                if math.isinf(leg):
+                    break
+                t += leg + self.cust[cid].service_time
+                prev = cid
+        self.rng.shuffle(hit)
+        self.rng.shuffle(rest)
+        return self._pull(seqs, (hit + rest)[:q])
+
+    def _string_removal(self, seqs: dict[int, list[int]], q: int) -> list[int]:
+        """Remove a contiguous RUN of stops from one route (Christiaens &
+        Vanden Berghe 2020). Sequence-aware where the others are point-aware:
+        tearing out a whole leg lets the repair re-thread it, which the other
+        operators cannot do because they only ever remove scattered stops."""
+        vids = [v for v in seqs if len(seqs[v]) > self._frozen(v) + 1]
+        if not vids:
+            return self._random_removal(seqs, q)
+        vid = self.rng.choice(vids)
+        lo = self._frozen(vid)
+        seq = seqs[vid]
+        length = max(1, min(q, len(seq) - lo))
+        start = self.rng.randint(lo, max(lo, len(seq) - length))
+        picks = [(vid, cid) for cid in seq[start:start + length]]
+        return self._pull(seqs, picks)
+
     @staticmethod
     def _pull(seqs: dict[int, list[int]], picks: list[tuple[int, int]]) -> list[int]:
         removed: list[int] = []
@@ -248,6 +325,14 @@ class ALNS:
     def _greedy_insert(self, seqs: dict[int, list[int]], removed: list[int]) -> None:
         for cid in sorted(removed, key=lambda c: (-self.cust[c].priority,
                                                   self.cust[c].tw_end)):
+            if self._out_of_time():
+                # Park the rest cheaply rather than overrunning the deadline.
+                # A re-plan that is 80 ms late is a re-plan the dispatcher did
+                # not get; an imperfect insertion is one the acceptance rule
+                # will simply reject.
+                vid = min(seqs, key=lambda k: self._load(seqs[k]))
+                seqs[vid].append(cid)
+                continue
             opts = self._insertion_costs(seqs, cid)
             if opts:
                 _d, vid, pos = opts[0]
@@ -263,6 +348,11 @@ class ALNS:
         """Insert whichever customer will hurt most if we wait — regret-2."""
         pending = list(removed)
         while pending:
+            if self._out_of_time():
+                for cid in pending:
+                    vid = min(seqs, key=lambda k: self._load(seqs[k]))
+                    seqs[vid].append(cid)
+                return
             best_cid, best_opt, best_regret = None, None, -math.inf
             for cid in pending:
                 opts = self._insertion_costs(seqs, cid)
@@ -286,6 +376,14 @@ class ALNS:
 
     # ------------------------------------------------------------------ driver
 
+    def _out_of_time(self) -> bool:
+        """The deadline has to be visible INSIDE an iteration, not only
+        between them. Regret-2 insertion over a large removal set is the most
+        expensive thing this engine does, and checking only at the top of the
+        loop let a single iteration run 60 ms past the global deadline --
+        which is exactly the overrun P0-05 was about."""
+        return self._deadline is not None and time.perf_counter() > self._deadline
+
     def _roulette(self, weights: list[float]) -> int:
         total = sum(weights)
         r = self.rng.random() * total
@@ -297,6 +395,7 @@ class ALNS:
         return len(weights) - 1
 
     def run(self, sol: Solution, deadline: float) -> tuple[Solution, dict]:
+        self._deadline = deadline
         seqs = {r.vehicle_id: list(r.customer_ids) for r in sol.routes}
         for v in self.inst.vehicles:
             seqs.setdefault(v.id, [])
@@ -367,12 +466,17 @@ class ALNS:
 
         out = Solution(routes=[Route(vehicle_id=vid, customer_ids=s)
                                for vid, s in best_seqs.items()])
+        # Hand the learned weights back to the caller's memory so the next
+        # incident of the SAME kind starts from what worked last time.
+        self.memory[self.event_type] = {"d": list(self.d_weight),
+                                        "r": list(self.r_weight)}
         weights = {name: round(wt, 3)
                    for name, wt in zip(self.destroy_names, self.d_weight)}
         weights.update({name: round(wt, 3)
                         for name, wt in zip(self.repair_names, self.r_weight)})
         return out, {
             "solver": "ALNS",
+            "event_type": self.event_type,
             "iterations": it,
             "accepted": accepted,
             "new_bests": new_bests,
@@ -392,6 +496,9 @@ def alns(inst: Instance, sol: Solution, tm: TimeMatrix, w: ObjectiveWeights,
 
 def alns_with_telemetry(inst: Instance, sol: Solution, tm: TimeMatrix,
                         w: ObjectiveWeights, deadline: float,
-                        seed: int = 0) -> tuple[Solution, dict]:
-    engine = ALNS(inst, tm, w, seed=seed)
+                        seed: int = 0, event_keys: set[str] | None = None,
+                        memory: dict | None = None,
+                        event_type: str = "generic") -> tuple[Solution, dict]:
+    engine = ALNS(inst, tm, w, seed=seed, event_keys=event_keys,
+                  memory=memory, event_type=event_type)
     return engine.run(sol, deadline)

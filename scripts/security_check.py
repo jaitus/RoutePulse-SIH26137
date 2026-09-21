@@ -86,12 +86,18 @@ def main() -> int:
 
     # ---- 3. input bounds. Each of these is a denial of service or an
     #         out-of-area write if it is accepted.
+    # These used to probe GET /api/boot, which took n/k/seed and rebuilt the
+    # simulation. It no longer does -- that was the P0-12 fix -- so the bounds
+    # are probed on the endpoint that actually owns them.
     bounded = [
-        ("instance size", "/api/boot?n=100000", "GET", None),
-        ("negative vehicles", "/api/boot?k=-3", "GET", None),
+        ("instance size", "/api/reset?n=100000", "POST", None),
+        ("negative vehicles", "/api/reset?k=-3", "POST", None),
         ("solver budget", "/api/replan?budget=999", "POST", None),
         ("unknown engine", "/api/replan?engines=rm-rf", "POST", None),
+        ("clock advance", "/api/advance?minutes=100000", "POST", None),
+        ("ambulance id", None, None, None),
     ]
+    bounded = [b for b in bounded if b[1]]
     key_hdr = {"X-API-Key": args.key} if args.key else None
     for name, path, method, body in bounded:
         s, _h, _b = call(B, path, method, body, headers=key_hdr)
@@ -114,6 +120,21 @@ def main() -> int:
     for name, body in body_checks:
         s, _h, _b = call(B, "/api/event", "POST", body, headers=auth_hdr)
         check(f"rejects {name}", s == 422, f"HTTP {s}")
+
+    # ---- 3b. GET /api/boot must not mutate the simulation (P0-12)
+    call(B, "/api/plan?budget=0.4", "POST", headers=key_hdr)
+    _s, _h, before = call(B, "/api/boot")
+    _s, _h, after = call(B, "/api/boot?n=90&k=20&seed=999")
+    try:
+        b0, b1 = json.loads(before.decode()), json.loads(after.decode())
+        same = (b0.get("customers") == b1.get("customers")
+                and b0.get("vehicles") == b1.get("vehicles")
+                and b1.get("planned") is not False)
+        check("GET /api/boot does not mutate state", same,
+              f"{b0.get('customers')}/{b0.get('vehicles')} stops/vehicles, "
+              f"planned={b1.get('planned')}")
+    except (ValueError, AttributeError):
+        check("GET /api/boot does not mutate state", False, "unreadable response")
 
     # ---- 4. errors do not leak internals
     _s, _h, raw = call(B, "/api/event", "POST", {"lat": 999, "lon": 0})
@@ -162,6 +183,19 @@ def main() -> int:
     total = sum(1 for v, _n, _d in results if v in (PASS, FAIL))
     print(f"\n{total - failed}/{total} checks passed"
           + (f"  ({failed} FAILED)" if failed else ""))
+
+    # The security result is EVIDENCE like any other number, so it is written
+    # to out/ where the final package can pick it up and hash it.
+    out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "out", "security.json")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump({"target": B, "mode": "api-key" if args.key else "open",
+                   "passed": total - failed, "total": total,
+                   "rate_limit_exercised": bool(args.rate),
+                   "checks": [{"verdict": v, "name": n, "detail": d}
+                              for v, n, d in results]}, f, indent=1)
+    print(f"written: {out}")
     return 1 if failed else 0
 
 

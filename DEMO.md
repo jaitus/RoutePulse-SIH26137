@@ -47,8 +47,10 @@ timestamp.
 - **Latency waterfall** — "Event to accepted plan, stage by stage. The matrix
   rebuild is **inside** this number. A 2025 systematic review of this field found
   that of fifteen peer-reviewed studies, **none** reported end-to-end timing at
-  all. Note this run raced four engines so you can watch them compete — a
-  dispatcher waits on one, and that path measures **462 ms at p95**."
+  all. This run raced four engines so you can watch them compete; a dispatcher
+  waits on one, and the single-engine path is measured separately under
+  Evidence — including where it stops meeting the target as the instance grows,
+  which is on the same page."
 - **Solver race** — "Same instance, same deadline, four engines, and all four
   re-scored by one evaluation function. Feasibility is a hard gate, not a penalty
   weight. ALNS usually wins; OR-Tools usually wins on a *static* instance and
@@ -58,12 +60,21 @@ timestamp.
   one shift. Nobody in the literature reports this; we do, and the badge says
   whether it came from a sensor or a model."
 
-**4. The ambulance.** Switch the mode to **Ambulance** and click a busy area.
-"This is not a vehicle in the routing problem — it is a different problem coupled
-through the cost layer. 4.8 minutes saved. And here is the number most systems
-would never show you: **+345.7**, what that priority cost the delivery fleet.
-Priority is not free and it is not teleportation — one-way streets and physical
-closures still apply."
+**4. The ambulance — one action.** Switch the mode to **Ambulance** and click a
+busy area. Do not press anything else. "This is not a vehicle in the routing
+problem — it is a different problem coupled through the cost layer. One click
+dispatched the unit, computed its priority route, published a green corridor
+with a *per-edge* occupancy window, and re-planned the delivery fleet around it.
+The acceptance decision on the right is already filled in." Then the number most
+systems would never show: "priority cost the fleet this much" — and "priority is
+not teleportation: one-ways and physical closures still apply."
+
+**4b. Let the fleet drive.** Press **Advance clock +20 min**. "Until this
+existed, every re-plan restarted from the depot with the full customer list —
+the cost layer was dynamic and the vehicles were not. Now stops whose ETA has
+passed are delivered and leave the problem, each vehicle is where it actually
+is, and the next re-plan starts from there." Watch the clock in the KPI band and
+the stop count fall.
 
 **5. "And here is the part most teams will not show you."** Press **2** or click
 **Evidence**. Scroll slowly. This is the close.
@@ -74,22 +85,28 @@ closures still apply."
 
 > **We ran the control experiment on our own algorithm, and then on two more.**
 >
-> | Layer | Contribution | Significant? |
+> | Comparison | Delta | Significant? |
 > |---|---:|---|
-> | Improvement layer (local search) | **+22.5%** | yes, p < 0.0001 |
-> | **QPSO swarm update rule** | **+0.3%** | **no, p = 0.98** |
-> | **Traffic-Aware ALNS** | **+7.2%** | **yes, p < 0.0001 → adopted** |
-> | **Simulated Bifurcation** | **−3.0%** | yes, p < 0.0001 → **rejected** |
-> | vs OR-Tools | −12.5% | yes, p < 0.0001 |
+> | Improvement layer (remove local search) | **+23%** | yes, p < 0.0001 |
+> | **Traffic-Aware ALNS** vs greedy+LS | **+8.3%** | **yes, p < 0.0001 → adopted** |
+> | QPSO+LS vs greedy+LS | +1.9% | p = 0.036 — but random-restart clears at +1.3% |
+> | **QPSO vs CLASSICAL PSO** | **+0.1%** | **no, p = 0.95 → indistinguishable** |
+> | QPSO → ALNS "hybrid" vs ALNS alone | −1.7% | no, p = 0.22 → **not a hybrid** |
+> | **Simulated Bifurcation** vs 2-opt | **−3.8%** | yes, p < 0.0001 → **rejected** |
+> | ALNS vs OR-Tools | −5.1% | yes, p < 0.0001 |
 >
 > 30 seeds, paired Wilcoxon signed-rank, identical instances and budgets.
+> Re-run it yourself: `python scripts/bench.py --seeds 30 --budget 0.35`
 
 Then the two sentences that matter:
 
-> "The quantum-inspired update rule contributes approximately **nothing** at
-> operational budgets. We know because we built a random-restart control arm with
-> the identical improvement layer. Sörensen (2015) predicts exactly this for
-> metaphor-named metaheuristics — and almost nobody tests for it."
+> "The quantum-inspired update rule contributes **nothing distinguishable** at
+> operational budgets. We know because we built a *classical PSO* control that
+> shares the encoding, the decoder, the improvement layer, the restart logic and
+> the budget — the only difference is the line that moves a particle. A
+> random-restart arm can tell you whether having a population helps; only this
+> can tell you whether the quantum part does. Sörensen (2015) predicts exactly
+> this for metaphor-named metaheuristics, and almost nobody tests for it."
 
 > "So we built two more engines and put them through the same gate. One passed
 > and shipped. One failed and we kept it, because *why* it failed is the most

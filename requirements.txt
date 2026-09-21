@@ -1,7 +1,13 @@
-fastapi
-uvicorn
-ortools
-requests
-networkx
-numpy
-scipy
+# Pinned for reproducibility. Regenerate with scripts/freeze_env.py.
+# Environment manifest (Python build, OS, CPU) is in out/environment.json.
+fastapi==0.136.1
+uvicorn==0.46.0
+ortools==9.15.6755
+requests==2.31.0
+networkx==3.6.1
+numpy==2.4.0
+scipy==1.17.1
+pydantic==2.13.3
+starlette==1.0.0
+pytest==9.1.1
+httpx==0.28.1

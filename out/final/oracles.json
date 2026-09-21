@@ -1,0 +1,163 @@
+{
+ "graph": "OpenStreetMap Bengaluru (simplified), 6,420 junctions",
+ "config": {
+  "vrp_seeds": 5,
+  "n": 7,
+  "k": 2,
+  "budget": 0.35,
+  "td_samples": 400,
+  "out": "C:\\PROJECTS\\SIH26137\\out\\oracles.json"
+ },
+ "exact_vrp": {
+  "rows": [
+   {
+    "seed": 0,
+    "plans_enumerated": 40320,
+    "exact_seconds": 2.76,
+    "optimum": 1045.5,
+    "greedy_gap_pct": 0.0,
+    "greedy_ls_gap_pct": 0.0,
+    "qpso_gap_pct": 0.0,
+    "pso_gap_pct": 0.0,
+    "alns_gap_pct": 0.0,
+    "ortools_gap_pct": 0.0
+   },
+   {
+    "seed": 1,
+    "plans_enumerated": 40320,
+    "exact_seconds": 2.87,
+    "optimum": 994.58,
+    "greedy_gap_pct": 0.508,
+    "greedy_ls_gap_pct": 0.508,
+    "qpso_gap_pct": 0.0,
+    "pso_gap_pct": 0.0,
+    "alns_gap_pct": 0.0,
+    "ortools_gap_pct": 0.126
+   },
+   {
+    "seed": 2,
+    "plans_enumerated": 40320,
+    "exact_seconds": 2.97,
+    "optimum": 922.36,
+    "greedy_gap_pct": 0.0,
+    "greedy_ls_gap_pct": 0.0,
+    "qpso_gap_pct": 0.0,
+    "pso_gap_pct": 0.0,
+    "alns_gap_pct": 0.0,
+    "ortools_gap_pct": 0.0
+   },
+   {
+    "seed": 3,
+    "plans_enumerated": 40320,
+    "exact_seconds": 2.86,
+    "optimum": 1359.41,
+    "greedy_gap_pct": 2.297,
+    "greedy_ls_gap_pct": 2.297,
+    "qpso_gap_pct": 0.0,
+    "pso_gap_pct": 0.0,
+    "alns_gap_pct": 0.0,
+    "ortools_gap_pct": 2.297
+   },
+   {
+    "seed": 4,
+    "plans_enumerated": 40320,
+    "exact_seconds": 2.88,
+    "optimum": 1045.48,
+    "greedy_gap_pct": 9.952,
+    "greedy_ls_gap_pct": 9.952,
+    "qpso_gap_pct": 0.0,
+    "pso_gap_pct": 0.0,
+    "alns_gap_pct": 0.0,
+    "ortools_gap_pct": 0.0
+   }
+  ],
+  "summary": {
+   "instances": 5,
+   "customers": 7,
+   "vehicles": 2,
+   "budget_s": 0.35,
+   "mean_gap_pct": {
+    "greedy_gap_pct": 2.551,
+    "greedy_ls_gap_pct": 2.551,
+    "qpso_gap_pct": 0.0,
+    "pso_gap_pct": 0.0,
+    "alns_gap_pct": 0.0,
+    "ortools_gap_pct": 0.485
+   },
+   "reached_optimum": {
+    "greedy_gap_pct": 2,
+    "greedy_ls_gap_pct": 2,
+    "qpso_gap_pct": 5,
+    "pso_gap_pct": 5,
+    "alns_gap_pct": 5,
+    "ortools_gap_pct": 3
+   }
+  }
+ },
+ "td_matrix_error": {
+  "buckets_3": {
+   "samples": 387,
+   "buckets": 3,
+   "horizon_s": 50400.0,
+   "seconds": 3.0,
+   "mean_signed_error_pct": 3.118,
+   "mean_abs_error_pct": 10.759,
+   "median_abs_error_pct": 8.255,
+   "p95_abs_error_pct": 23.78,
+   "max_abs_error_pct": 27.137,
+   "mean_abs_error_s": 19.51,
+   "worst_case": [
+    -27.137,
+    10068956865,
+    1391210499,
+    3571.5,
+    84.8,
+    116.4
+   ],
+   "note": "Positive means the matrix OVER-estimates travel time, which is the conservative direction for a delivery ETA."
+  },
+  "buckets_5": {
+   "samples": 382,
+   "buckets": 5,
+   "horizon_s": 50400.0,
+   "seconds": 3.1,
+   "mean_signed_error_pct": 4.343,
+   "mean_abs_error_pct": 4.493,
+   "median_abs_error_pct": 3.377,
+   "p95_abs_error_pct": 12.457,
+   "max_abs_error_pct": 14.545,
+   "mean_abs_error_s": 8.01,
+   "worst_case": [
+    14.545,
+    2228056112,
+    2228090640,
+    25272.1,
+    34.2,
+    29.9
+   ],
+   "note": "Positive means the matrix OVER-estimates travel time, which is the conservative direction for a delivery ETA."
+  },
+  "buckets_6": {
+   "samples": 384,
+   "buckets": 6,
+   "horizon_s": 50400.0,
+   "seconds": 3.0,
+   "mean_signed_error_pct": 1.405,
+   "mean_abs_error_pct": 1.696,
+   "median_abs_error_pct": 0.672,
+   "p95_abs_error_pct": 7.266,
+   "max_abs_error_pct": 8.49,
+   "mean_abs_error_s": 3.12,
+   "worst_case": [
+    8.49,
+    1391210499,
+    452486970,
+    39457.3,
+    234.0,
+    215.7
+   ],
+   "note": "Positive means the matrix OVER-estimates travel time, which is the conservative direction for a delivery ETA."
+  }
+ },
+ "production_buckets": 5
+}

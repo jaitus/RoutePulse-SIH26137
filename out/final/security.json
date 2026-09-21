@@ -1,0 +1,174 @@
+{
+ "target": "http://127.0.0.1:8020",
+ "mode": "api-key",
+ "passed": 33,
+ "total": 33,
+ "rate_limit_exercised": false,
+ "checks": [
+  {
+   "verdict": "PASS",
+   "name": "header content-security-policy on /",
+   "detail": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header x-content-type-options on /",
+   "detail": "nosniff"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header x-frame-options on /",
+   "detail": "DENY"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header referrer-policy on /",
+   "detail": "no-referrer"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header content-security-policy on /api/health",
+   "detail": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header x-content-type-options on /api/health",
+   "detail": "nosniff"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header x-frame-options on /api/health",
+   "detail": "DENY"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header referrer-policy on /api/health",
+   "detail": "no-referrer"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header content-security-policy on /static/app.css",
+   "detail": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header x-content-type-options on /static/app.css",
+   "detail": "nosniff"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header x-frame-options on /static/app.css",
+   "detail": "DENY"
+  },
+  {
+   "verdict": "PASS",
+   "name": "header referrer-policy on /static/app.css",
+   "detail": "no-referrer"
+  },
+  {
+   "verdict": "PASS",
+   "name": "CSP forbids inline script",
+   "detail": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  },
+  {
+   "verdict": "PASS",
+   "name": "CSP forbids inline style",
+   "detail": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  },
+  {
+   "verdict": "PASS",
+   "name": "/docs not served",
+   "detail": "HTTP 404"
+  },
+  {
+   "verdict": "PASS",
+   "name": "/redoc not served",
+   "detail": "HTTP 404"
+  },
+  {
+   "verdict": "PASS",
+   "name": "/openapi.json not served",
+   "detail": "HTTP 404"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects out-of-range instance size",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects out-of-range negative vehicles",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects out-of-range solver budget",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects out-of-range unknown engine",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects out-of-range clock advance",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects latitude off the globe",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects unknown event kind",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects absurd incident radius",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects negative multiplier",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "rejects coordinate outside the served network",
+   "detail": "HTTP 422"
+  },
+  {
+   "verdict": "PASS",
+   "name": "GET /api/boot does not mutate state",
+   "detail": "30/5 stops/vehicles, planned=True"
+  },
+  {
+   "verdict": "PASS",
+   "name": "error body leaks no traceback or path",
+   "detail": "clean"
+  },
+  {
+   "verdict": "PASS",
+   "name": "mutating endpoint refuses a missing key",
+   "detail": "HTTP 401"
+  },
+  {
+   "verdict": "PASS",
+   "name": "mutating endpoint refuses a wrong key",
+   "detail": "HTTP 401"
+  },
+  {
+   "verdict": "PASS",
+   "name": "mutating endpoint accepts the right key",
+   "detail": "HTTP 200"
+  },
+  {
+   "verdict": "PASS",
+   "name": "health reports auth as enforced",
+   "detail": "api-key required"
+  }
+ ]
+}

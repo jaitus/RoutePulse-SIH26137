@@ -71,7 +71,9 @@ def build(seed: int, n: int, k: int):
     inst = random_instance(depot, nodes, n_customers=n, n_vehicles=k,
                            capacity=110, seed=seed,
                            depot_lat=g.nodes[depot][0], depot_lon=g.nodes[depot][1])
-    tm = TimeMatrix(g, [inst.depot_node] + [c.id for c in inst.customers], buckets=3)
+    tm = TimeMatrix(g, [inst.depot_node] + [c.id for c in inst.customers],
+                    buckets=5)
+    tm.base = TimeMatrix(g, tm.nodes, buckets=5, use_overlays=False)
     return g, inst, tm, src
 
 
@@ -116,6 +118,25 @@ def run_arm(arm: str, inst, tm, w, budget: float, seed: int):
             s = s2
         tel = {"iterations": tel.get("routes_tried", 0),
                "evaluations": tel.get("routes_improved", 0), **tel}
+    elif arm == "PSO":      # CLASSICAL swarm control (reviewer P1-09)
+        # Identical encoding, decoder, improvement layer, restart logic and
+        # budget. The only difference from arm A is the line that moves a
+        # particle. That is what isolates the *quantum-inspired* update rule
+        # from "having a swarm at all", which is what arm B measures.
+        s, tel = solve_qpso(inst, tm, w, budget, seed=seed, warm_start=warm,
+                            update="pso")
+    elif arm == "A_HYB":    # QPSO -> ALNS chained (reviewer P1-02)
+        # The architecture the PPT must NOT claim without this number: run the
+        # quantum-inspired stage, then hand its output to ALNS, splitting one
+        # budget between them. If this does not beat both parents, the honest
+        # description is "two separate engines", not "a hybrid chain".
+        from routepulse.solvers.alns import alns_with_telemetry
+        s, tel = solve_qpso(inst, tm, w, budget * 0.5, seed=seed, warm_start=warm)
+        s = score(inst, s, tm, w)
+        s, tel2 = alns_with_telemetry(inst, s, tm, w,
+                                      time.perf_counter() + budget * 0.5, seed=seed)
+        s = score(inst, s, tm, w)
+        tel = {**tel, "alns_iterations": tel2.get("iterations", 0)}
     elif arm == "A":
         s, tel = solve_qpso(inst, tm, w, budget, seed=seed, warm_start=warm)
     elif arm == "A0":
@@ -154,8 +175,8 @@ def main() -> None:
     args = ap.parse_args()
 
     w = ObjectiveWeights()
-    arms = ["GREEDY", "E", "ALNS", "SB", "SEQ_LS", "SEQ_SB",
-            "A", "A0", "B", "D", "OR"]
+    arms = ["GREEDY", "E", "ALNS", "A_HYB", "SB", "SEQ_LS", "SEQ_SB",
+            "A", "A0", "PSO", "B", "D", "OR"]
     labels = {
         "GREEDY": "Greedy construction only",
         "E":      "Greedy + local search (no swarm)",
@@ -163,8 +184,10 @@ def main() -> None:
         "SB":     "Greedy + LS + Simulated Bifurcation",
         "SEQ_LS": "  re-sequencing only: 2-opt",
         "SEQ_SB": "  re-sequencing only: Simulated Bifurcation",
+        "A_HYB":  "QPSO -> ALNS chained hybrid",
         "A":      "QPSO + LS, warm start   [proposed]",
         "A0":     "QPSO + LS, cold start",
+        "PSO":    "Classical PSO + LS (same decoder)",
         "B":      "Random-restart + LS (no swarm pull)",
         "D":      "QPSO, local search OFF",
         "OR":     "OR-Tools (same matrix/budget)",
@@ -259,9 +282,65 @@ def main() -> None:
     if "A" in summary and "D" in summary:
         d = (m("D") - m("A")) / m("D") * 100
         print(f"  local search              (D -> A) : {d:+.2f}%")
+    if "A" in summary and "PSO" in summary:
+        d = (m("PSO") - m("A")) / m("PSO") * 100
+        p = tests.get("PSO", {}).get("p")
+        print(f"  QUANTUM vs CLASSICAL swarm(PSO->A) : {d:+.2f}%"
+              + ("" if p is None else f"   (arm p={p:.4f} vs E)"))
     if "A" in summary and "OR" in summary:
         d = (m("OR") - m("A")) / m("OR") * 100
         print(f"  vs OR-Tools                        : {d:+.2f}%")
+
+    if all(k in summary for k in ("A_HYB", "A", "ALNS")):
+        print("\nIS THE QPSO -> ALNS HYBRID A REAL THING? (reviewer P1-02)")
+        vs_a = (m("A") - m("A_HYB")) / m("A") * 100
+        vs_al = (m("ALNS") - m("A_HYB")) / m("ALNS") * 100
+        print(f"  hybrid vs QPSO+LS alone            : {vs_a:+.2f}%")
+        print(f"  hybrid vs ALNS alone               : {vs_al:+.2f}%")
+        verdict = ("the chain beats both parents -- 'hybrid' is a fair label"
+                   if vs_a > 0 and vs_al > 0
+                   else "the chain does NOT beat both parents -- describe them "
+                        "as separate engines, not a hybrid")
+        print(f"  verdict: {verdict}")
+
+    # ---- the comparisons the claims are actually made from.
+    # Testing every arm against ONE reference answers "does this arm beat
+    # greedy+LS", which is not the question for most of them. The quantum
+    # update rule has to be tested against the CLASSICAL swarm, and the hybrid
+    # against its own parents, or the headline sentence has no statistic
+    # behind it.
+    print("\nKEY PAIRWISE COMPARISONS (paired Wilcoxon on the same instances)")
+    try:
+        from scipy.stats import wilcoxon as _wx2
+
+        def compare(a, b, label):
+            if a not in results or b not in results:
+                return
+            pr = [(x["score"], y["score"]) for x, y in zip(results[a], results[b])
+                  if x["feasible"] and y["feasible"]]
+            if len(pr) < 5:
+                print(f"  {label:<40} n={len(pr)} — too few pairs")
+                return
+            xs = [u for u, _ in pr]
+            ys = [v for _, v in pr]
+            if all(abs(u - v) < 1e-9 for u, v in pr):
+                print(f"  {label:<40} identical")
+                return
+            _s, pv = _wx2(xs, ys)
+            d = (st.mean(ys) - st.mean(xs)) / st.mean(ys) * 100
+            verdict = "significant" if pv < 0.05 else "NOT significant"
+            print(f"  {label:<40} {d:+6.2f}%  p={pv:.4f}  n={len(pr)}  {verdict}")
+            tests[f"{a}_vs_{b}"] = {"p": float(pv), "n": len(pr),
+                                    "delta_pct": round(d, 3)}
+
+        compare("A", "PSO", "QPSO vs CLASSICAL PSO (same decoder)")
+        compare("A", "E", "QPSO+LS vs greedy+LS")
+        compare("ALNS", "E", "ALNS vs greedy+LS")
+        compare("A_HYB", "ALNS", "QPSO->ALNS hybrid vs ALNS alone")
+        compare("A_HYB", "A", "QPSO->ALNS hybrid vs QPSO+LS alone")
+        compare("ALNS", "OR", "ALNS vs OR-Tools")
+    except ImportError:
+        print("  scipy not installed — no test, so no claim")
 
     print("\nADOPTION GATES (same start, same total budget, vs 'Greedy + LS')")
     for arm, name in (("ALNS", "Traffic-Aware ALNS"),

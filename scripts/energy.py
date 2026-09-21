@@ -60,7 +60,9 @@ def main() -> None:
     ap.add_argument("--trials", type=int, default=12)
     ap.add_argument("--stops", type=int, default=30)
     ap.add_argument("--vehicles", type=int, default=5)
-    ap.add_argument("--budget", type=float, default=0.35)
+    # Match the declared operational budget, so the energy figure
+    # describes the configuration the latency figure describes.
+    ap.add_argument("--budget", type=float, default=0.25)
     ap.add_argument("--out", default=os.path.join(ROOT, "out", "energy.json"))
     args = ap.parse_args()
 
@@ -83,9 +85,9 @@ def main() -> None:
     print()
 
     arms = {
+        "operational (ALNS only)": ("alns",),
         "operational (QPSO only)": ("qpso",),
         "emergency heuristic only": ("emergency",),
-        "Traffic-Aware ALNS": ("alns",),
         "demo race (4 engines)": ("emergency", "qpso", "alns", "ortools"),
     }
 
@@ -107,7 +109,7 @@ def main() -> None:
                                    n_vehicles=args.vehicles, capacity=110, seed=t,
                                    depot_lat=g.nodes[depot][0],
                                    depot_lon=g.nodes[depot][1])
-            eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=3)
+            eng = Engine(g, inst, ObjectiveWeights(), matrix_buckets=5)
             eng.initial_plan(budget=0.8, seed=t)
             c = inst.customers[t % len(inst.customers)]
             eng.apply_closure(c.lat, c.lon, radius_m=300)
@@ -133,7 +135,7 @@ def main() -> None:
             "trials": args.trials,
         }
 
-    base = report["arms"].get("operational (QPSO only)")
+    base = report["arms"].get("operational (ALNS only)")
     if base:
         s = base["at_scale"]
         print(f"\nOperational path at {REPLANS_PER_DAY} re-plans/day:")
