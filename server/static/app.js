@@ -917,7 +917,7 @@ function renderEms(d) {
   clear(el);
   const row = (k, v, cls) => h('div', { class: 'tr ' + (cls || '') },
     h('span', { text: k }), h('b', { text: v }));
-  el.append(
+  put(el,
     h('div', { class: 'hd', text: d.unit + ' → ' + d.hospital }),
     h('div', { class: 'bd' },
       row('to scene', d.to_scene_min + ' min'),
@@ -926,14 +926,33 @@ function renderEms(d) {
       row('without priority', d.baseline_min + ' min'),
       row('ambulance time saved', d.time_saved_min + ' min', 'saved'),
       h('div', { class: 'split' },
-        row('cost of priority to the fleet', '+' + d.cost_of_priority, 'cost'),
-        row('fleet cost before → after', d.fleet_cost_before + ' → ' + d.fleet_cost_after),
-        row('green corridor', d.corridor_edges + ' edges'),
+        // The price of priority is shown ONLY when an interaction was actually
+        // measured. A corridor through streets nobody was using, at a time
+        // nobody was there, costs the fleet nothing — and printing "+0.0" as
+        // though it were a finding is worse than saying so plainly.
+        d.interaction
+          ? row('cost of priority to the fleet', '+' + d.cost_of_priority, 'cost')
+          : row('cost of priority to the fleet', 'no overlap in this run'),
+        d.interaction
+          ? row('fleet cost before → after',
+                d.fleet_cost_before + ' → ' + d.fleet_cost_after)
+          : null,
+        row('delivery legs inside the corridor window',
+            String(d.route_corridor_overlaps ?? 0)),
+        (d.interaction && (d.affected_vehicles || []).length)
+          ? row('vehicles affected', 'V' + d.affected_vehicles.join(', V'))
+          : null,
+        row('green corridor', d.corridor_edges + ' edges, '
+            + (d.corridor_edge_windows || 0) + ' per-edge windows'),
         row('path latency (budget 200 ms)', d.path_ms + ' ms')),
-      h('div', { class: 'footnote', text:
-        'Priority is not teleportation — one-ways and physical closures are '
-        + 'still respected. It is also not free, and both sides of that trade '
-        + 'are above.' })));
+      h('div', { class: 'footnote', text: d.interaction
+        ? 'Priority is not teleportation — one-ways and physical closures are '
+          + 'still respected. It is also not free, and both sides of that '
+          + 'trade are above.'
+        : 'The corridor did not cross any delivery leg while it was warm, so '
+          + 'the fleet paid nothing. That is a real outcome, not a missing '
+          + 'measurement — the per-edge windows are what make it '
+          + 'distinguishable from an effect nobody looked for.' })));
 }
 
 /* --------------------------------------------------------------- actions */
@@ -1122,9 +1141,17 @@ function cardAblation(ev) {
   }
   const b = ev.benchmark, sum = b.summary || {}, wx = b.wilcoxon || {};
   const ref = sum.E ? sum.E.mean : null;
-  const order = ['GREEDY', 'E', 'ALNS', 'SB', 'SEQ_LS', 'SEQ_SB', 'A', 'A0', 'B', 'D', 'OR'];
+  // Every arm the benchmark ran, in reading order. A hand-written whitelist
+  // used to omit the chained hybrid and the classical-PSO control, so the two
+  // arms carrying the least flattering results were the two the sheet did not
+  // show. Anything in the file that is not named here is appended rather than
+  // dropped, so a new arm can never go missing the same way twice.
+  const order = ['GREEDY', 'E', 'ALNS', 'A_HYB', 'SB', 'SEQ_LS', 'SEQ_SB',
+                 'A', 'A0', 'PSO', 'B', 'D', 'OR'];
+  const keys = order.filter(k => sum[k])
+    .concat(Object.keys(sum).filter(k => !order.includes(k)));
   const body = h('tbody');
-  for (const k of order) {
+  for (const k of keys) {
     const a = sum[k];
     if (!a) continue;
     const delta = (ref && k !== 'E') ? ((ref - a.mean) / ref) * 100 : null;
@@ -1194,6 +1221,77 @@ function cardGates(ev) {
       + 'reputation. Each had to beat the existing improvement layer from the '
       + 'same start, on the same budget, over 30 paired seeds.' }),
     h('div', { class: 'bars' }, rows));
+}
+
+function cardSwarmIsolation(ev) {
+  // The project's central claim is "quantum-inspired". The only way to test it
+  // is to hold everything else fixed -- same decoder, same local search, same
+  // instance, same budget -- and change nothing but the line that moves a
+  // particle. That comparison used to exist only in a JSON file, so the sheet
+  // showed every result except the one that questions the headline.
+  const wx = (ev.benchmark && ev.benchmark.wilcoxon) || {};
+  const stat = wx.A_vs_PSO;
+  const dyn = ev.dynamic_arm;
+  if (!stat && !dyn) return null;
+
+  const rows = [];
+  const line = (name, sub, d, lo, hi, p) => {
+    const sig = (p !== null && p !== undefined && p < 0.05);
+    rows.push(h('tr', null,
+      h('td', null, h('div', { class: 'lbl', text: name }),
+        h('div', { class: 'd', text: sub })),
+      h('td', { class: 'num', text: pc(d) }),
+      h('td', { class: 'num', text: (lo === null || lo === undefined) ? '—'
+        : '[' + pc(lo) + ', ' + pc(hi) + ']' }),
+      h('td', null, h('span', { class: 'tag ' + (sig ? 'ok' : 'warn'),
+        text: p === null || p === undefined ? 'n/a'
+          : (sig ? 'p ' : 'n.s. p ') + (p < 0.0001 ? '<0.0001' : p.toFixed(4)) }))));
+  };
+
+  if (stat) {
+    line('Static plan quality', '30 paired seeds, cold instance, 0.35 s budget',
+      stat.delta_pct, stat.ci95_low_pct, stat.ci95_high_pct, stat.p);
+  }
+  if (dyn && dyn.analysis && dyn.analysis.score) {
+    const s = dyn.analysis.score;
+    const n = (dyn.events || []).length;
+    line('Dynamic recovery quality',
+      s.n + ' paired recoveries across ' + n + ' event types, frozen '
+      + 'commitments, 0.25 s budget',
+      s.delta_pct, s.ci95_low_pct, s.ci95_high_pct, s.p);
+    const lat = dyn.analysis.latency_ms;
+    if (lat) {
+      line('Dynamic recovery latency', 'same runs, wall clock to an accepted plan',
+        lat.delta_pct, lat.ci95_low_pct, lat.ci95_high_pct, lat.p);
+    }
+  }
+
+  const fr = dyn && dyn.analysis && dyn.analysis.feasible_runs;
+  return card('full', 'Is the swarm rule quantum-inspired in any way that matters?',
+    [h('span', { class: 'tag warn', text: 'the control arm' })],
+    h('div', { class: 'lede', text:
+      'One line differs between the two conditions: the delta-potential-well '
+      + 'update of QPSO versus the constricted velocity update of classical '
+      + 'PSO (Clerc–Kennedy). Identical random-key encoding, identical Split '
+      + 'decode, identical local search, identical instances, identical '
+      + 'budgets. A positive delta favours QPSO. Lower is better throughout.' }),
+    h('table', { class: 'data' },
+      h('thead', null, h('tr', null,
+        h('th', { text: 'isolation' }), h('th', { class: 'num', text: 'QPSO vs PSO' }),
+        h('th', { class: 'num', text: '95% CI on the paired difference' }),
+        h('th', { text: 'significance' }))),
+      h('tbody', null, ...rows)),
+    h('div', { class: 'footnote' },
+      h('b', { text: 'Neither isolation separates. ' }),
+      'Every interval above spans zero, so the honest reading is that the '
+      + 'quantum-inspired update rule performs the same as a classical swarm '
+      + 'on this problem — statically and, more importantly, on the dynamic '
+      + 'recovery this system actually exists to do. The rule is retained '
+      + 'because the sponsor specified it and it costs nothing to keep, not '
+      + 'because it was shown to help.'
+      + (fr ? ' Both arms recovered a feasible plan on ' + fr.qpso + '/'
+        + fr.total + ' and ' + fr.pso + '/' + fr.total + ' runs respectively.'
+        : '')));
 }
 
 function cardConvergence(ev) {
@@ -1490,6 +1588,7 @@ async function renderEvidence() {
   const add = (x) => { if (!x) return; (Array.isArray(x) ? x : [x]).forEach((n) => grid.append(n)); };
   add(cardAblation(ev));
   add(cardGates(ev));
+  add(cardSwarmIsolation(ev));
   add(cardConvergence(ev));
   add(cardsLatency(ev));
   add(cardSB(ev));

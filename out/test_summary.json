@@ -1,0 +1,12 @@
+{
+ "path": "tests/",
+ "collected": 69,
+ "passed": 69,
+ "failed": 0,
+ "errors": 0,
+ "all_passed": true,
+ "collected_matches_executed": true,
+ "seconds": 33.61,
+ "pytest_summary_line": "69 passed, 3 warnings in 31.96s",
+ "returncode": 0
+}

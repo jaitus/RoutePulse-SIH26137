@@ -1,9 +1,9 @@
 {
- "target": "http://127.0.0.1:8020",
+ "target": "http://127.0.0.1:8000",
  "mode": "api-key",
- "passed": 33,
- "total": 33,
- "rate_limit_exercised": false,
+ "passed": 34,
+ "total": 34,
+ "rate_limit_exercised": true,
  "checks": [
   {
    "verdict": "PASS",
@@ -169,6 +169,11 @@
    "verdict": "PASS",
    "name": "health reports auth as enforced",
    "detail": "api-key required"
+  },
+  {
+   "verdict": "PASS",
+   "name": "expensive endpoint is rate limited",
+   "detail": "39 requests before 429"
   }
  ]
 }

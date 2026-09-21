@@ -408,8 +408,16 @@ class RoadGraph:
             out[t] = math.inf
         return (out, prev) if want_tree else out
 
-    def path(self, src: int, dst: int, depart_t: float) -> list[int]:
-        """Node path for drawing on the map."""
+    def path(self, src: int, dst: int, depart_t: float,
+             use_overlays: bool = True) -> list[int]:
+        """Node path for drawing on the map.
+
+        `use_overlays=False` gives the path the vehicle WOULD have taken
+        before any incident or corridor existed. That is the right basis for
+        asking "does this plan cross the corridor?", because the live path has
+        already detoured around it -- measuring the detour would report zero
+        overlap for precisely the corridors that had the biggest effect.
+        """
         dist = {src: 0.0}
         prev: dict[int, int] = {}
         pq: list[tuple[float, int]] = [(0.0, src)]
@@ -422,7 +430,8 @@ class RoadGraph:
             if u == dst:
                 break
             for (v, length_m, spd, key) in self.adj.get(u, ()):
-                tt = self.travel_time(u, v, length_m, spd, key, depart_t + d)
+                tt = self.travel_time(u, v, length_m, spd, key, depart_t + d,
+                                      use_overlays=use_overlays)
                 if math.isinf(tt):
                     continue
                 nd = d + tt

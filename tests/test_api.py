@@ -101,3 +101,29 @@ def test_headers_are_hardened(client):
 def test_interactive_docs_are_not_served(client):
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert client.get(path).status_code == 404
+
+
+def test_evidence_exposes_every_committed_experiment(client):
+    """The Evidence sheet must not quietly omit an experiment that was run.
+
+    The ablation table was built from a hand-written whitelist of arm keys, and
+    the two arms it happened to omit were the chained hybrid and the classical
+    PSO control -- the two carrying the least flattering results. The endpoint
+    is the other half of that fix: if a result file exists in out/, it reaches
+    the UI, and if it does not, it is named in `missing` so an unrun experiment
+    and a passing one cannot look the same.
+    """
+    j = client.get("/api/evidence").json()
+    assert "missing" in j
+    known = {"benchmark", "latency", "convergence", "scenarios",
+             "simulated_bifurcation", "energy", "dynamic_arm"}
+    # Every experiment is either served or explicitly declared missing.
+    assert known == set(j["missing"]) | (known & set(j))
+    if "dynamic_arm" in j:
+        assert j["dynamic_arm"].get("analysis"), \
+            "the QPSO-vs-classical-PSO isolation was served without its analysis"
+    if "benchmark" in j:
+        # Both the control arm and the hybrid must survive the trip to the UI.
+        summary = j["benchmark"].get("summary") or {}
+        assert "PSO" in summary, "the classical PSO control arm is not served"
+        assert "A_HYB" in summary, "the chained hybrid arm is not served"

@@ -44,6 +44,7 @@ class TimeMatrix:
         # Buckets are placed where the time-of-day curve bends, not evenly.
         # See RoadGraph.bucket_times(): uniform spacing missed both rush-hour
         # peaks and cost 10.9% mean absolute error against exact TD Dijkstra.
+        self._base_buckets = buckets
         self.bucket_t = (graph.bucket_times(buckets)
                          if hasattr(graph, "bucket_times")
                          else [self.horizon * b / max(1, buckets - 1)
@@ -57,7 +58,8 @@ class TimeMatrix:
 
     # ------------------------------------------------------- fast path (scipy)
 
-    def _scipy_rows(self, rows: list[int]) -> bool:
+    def _scipy_rows(self, rows: list[int],
+                    bucket_ix: list[int] | None = None) -> bool:
         """Compute matrix rows with scipy's C Dijkstra. Returns False if scipy
         is unavailable, so the pure-Python path stays as a fallback.
 
@@ -100,7 +102,10 @@ class TimeMatrix:
         N = len(self._ix_node)
         tgt_ix = np.asarray([self._node_ix[t] for t in self.nodes], dtype=np.int32)
 
-        for b, bt in enumerate(self.bucket_t):
+        todo = (list(range(len(self.bucket_t))) if bucket_ix is None
+                else bucket_ix)
+        for b in todo:
+            bt = self.bucket_t[b]
             wts = np.empty(len(self._edge_meta), dtype=np.float64)
             for e, (u, v, L, spd, key) in enumerate(self._edge_meta):
                 tt = g.travel_time(u, v, L, spd, key, bt,
@@ -131,7 +136,7 @@ class TimeMatrix:
             # rebuild: 31 rows x 3,091 nodes x 6 buckets is half a million
             # Python dict writes to answer a question that is one array lookup
             # per changed edge.
-            if not hasattr(self, "_pred") or len(self._pred) != self.buckets:
+            if getattr(self, "_pred", None) is None                     or len(self._pred) != self.buckets:
                 self._pred = [None] * self.buckets
             if self._pred[b] is None or self._pred[b].shape[0] != len(self.nodes):
                 self._pred[b] = np.full((len(self.nodes), N), -1, dtype=np.int32)
@@ -258,6 +263,75 @@ class TimeMatrix:
                     self.M[b][i][j] = 0.0 if i == j else d.get(dst, math.inf)
         self.last_pairs_rebuilt = len(rows) * len(self.nodes) * self.buckets
         return time.perf_counter() - t0
+
+    def set_focus_times(self, times: list[float]) -> None:
+        """Add extra sampling times for a SHORT-LIVED overlay.
+
+        A green corridor is warm for ten or fifteen minutes. The production
+        matrix samples at 0, 1 h, 4 h, 9 h and 14 h. A per-edge occupancy
+        window of five minutes therefore falls between samples on almost every
+        edge, and the planner's cost model cannot see the very event it is
+        supposed to react to -- the corridor becomes more physically accurate
+        and simultaneously less visible, which is the worst of both.
+
+        So when an overlay is active over a narrow window, the matrix samples
+        THAT window too. Costs one extra bucket-rebuild each, during an
+        emergency only, and it is the difference between a corridor that shows
+        up in the objective and one that does not.
+        """
+        base = self.g.bucket_times(self._base_buckets)             if hasattr(self.g, "bucket_times") else list(self.bucket_t)
+        extra = [t for t in times if 0.0 <= t <= self.horizon]
+        merged = sorted(set(round(t, 1) for t in (base + extra)))
+        old = [round(t, 1) for t in self.bucket_t]
+        if merged == old:
+            return
+
+        # INCREMENTAL. Adding a sampling time does not invalidate the others --
+        # a bucket IS a fixed departure time and the rest are unchanged. So the
+        # existing slices are carried over and only the genuinely new bucket
+        # times are computed. Rebuilding all of them instead turned a 45 ms
+        # insertion into a 280 ms full rebuild and pushed the emergency path
+        # past its deadline for no reason.
+        n = len(self.nodes)
+        keep = {t: i for i, t in enumerate(old)}
+        newM, newTrees, newPred, todo = [], [], [], []
+        pred = getattr(self, "_pred", None)
+        for bi, t in enumerate(merged):
+            src = keep.get(t)
+            if src is not None and src < len(self.M):
+                newM.append(self.M[src])
+                newTrees.append(self.trees[src] if hasattr(self, "trees")
+                                and src < len(self.trees)
+                                else [dict() for _ in range(n)])
+                newPred.append(pred[src] if pred and src < len(pred) else None)
+            else:
+                newM.append([[math.inf] * n for _ in range(n)])
+                newTrees.append([dict() for _ in range(n)])
+                newPred.append(None)
+                todo.append(bi)
+
+        self.bucket_t = merged
+        self.buckets = len(merged)
+        self.M, self.trees, self._pred = newM, newTrees, newPred
+        self._pen_cache = {}
+        t0 = time.perf_counter()
+        if not self._scipy_rows(list(range(n)), bucket_ix=todo):
+            targets = set(self.nodes)
+            for bi in todo:
+                for i, src_node in enumerate(self.nodes):
+                    d, prev = self.g.dijkstra_tt(src_node, targets,
+                                                 self.bucket_t[bi],
+                                                 want_tree=True,
+                                                 use_overlays=self.use_overlays)
+                    self.trees[bi][i] = prev
+                    for j, dst in enumerate(self.nodes):
+                        self.M[bi][i][j] = 0.0 if i == j else d.get(dst, math.inf)
+        self.build_seconds = time.perf_counter() - t0
+        self.last_pairs_rebuilt = len(todo) * n * n
+
+    def clear_focus_times(self) -> None:
+        """Return to the plain production bucket set."""
+        self.set_focus_times([])
 
     def rebuild_all(self) -> float:
         """Full recompute. Sound under BOTH cost increases and decreases.

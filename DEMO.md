@@ -49,7 +49,7 @@ timestamp.
   that of fifteen peer-reviewed studies, **none** reported end-to-end timing at
   all. This run raced four engines so you can watch them compete; a dispatcher
   waits on one, and the single-engine path is measured separately under
-  Evidence — including where it stops meeting the target as the instance grows,
+  Evidence — including the instance size at which it stops meeting the target,
   which is on the same page."
 - **Solver race** — "Same instance, same deadline, four engines, and all four
   re-scored by one evaluation function. Feasibility is a hard gate, not a penalty
@@ -60,14 +60,20 @@ timestamp.
   one shift. Nobody in the literature reports this; we do, and the badge says
   whether it came from a sensor or a model."
 
-**4. The ambulance — one action.** Switch the mode to **Ambulance** and click a
+**4. The ambulance — one action, and a measured effect.** Switch the mode to **Ambulance** and click a
 busy area. Do not press anything else. "This is not a vehicle in the routing
 problem — it is a different problem coupled through the cost layer. One click
 dispatched the unit, computed its priority route, published a green corridor
 with a *per-edge* occupancy window, and re-planned the delivery fleet around it.
-The acceptance decision on the right is already filled in." Then the number most
-systems would never show: "priority cost the fleet this much" — and "priority is
-not teleportation: one-ways and physical closures still apply."
+The acceptance decision on the right is already filled in."
+
+Then the panel most systems would never show. It reports how many delivery legs
+actually crossed the corridor inside its per-edge window, which vehicles were
+affected, and what priority cost the fleet. **If the ambulance never crossed the
+fleet in time it says "no overlap in this run" instead of printing +0.0** — the
+per-edge windows are what make a real zero distinguishable from an effect nobody
+looked for. And: "priority is not teleportation; one-ways and physical closures
+still apply."
 
 **4b. Let the fleet drive.** Press **Advance clock +20 min**. "Until this
 existed, every re-plan restarted from the depot with the full customer list —
@@ -85,17 +91,18 @@ the stop count fall.
 
 > **We ran the control experiment on our own algorithm, and then on two more.**
 >
-> | Comparison | Delta | Significant? |
-> |---|---:|---|
-> | Improvement layer (remove local search) | **+23%** | yes, p < 0.0001 |
-> | **Traffic-Aware ALNS** vs greedy+LS | **+8.3%** | **yes, p < 0.0001 → adopted** |
-> | QPSO+LS vs greedy+LS | +1.9% | p = 0.036 — but random-restart clears at +1.3% |
-> | **QPSO vs CLASSICAL PSO** | **+0.1%** | **no, p = 0.95 → indistinguishable** |
-> | QPSO → ALNS "hybrid" vs ALNS alone | −1.7% | no, p = 0.22 → **not a hybrid** |
-> | **Simulated Bifurcation** vs 2-opt | **−3.8%** | yes, p < 0.0001 → **rejected** |
-> | ALNS vs OR-Tools | −5.1% | yes, p < 0.0001 |
+> | Comparison | Delta | 95% CI | Verdict |
+> |---|---:|---|---|
+> | Remove the improvement layer | **+23%** | — | yes, p < 0.0001 |
+> | **Traffic-Aware ALNS** vs greedy+LS | **+9.7%** | [+7.0%, +12.5%] | **p < 0.0001 → adopted** |
+> | QPSO+LS vs greedy+LS | +1.2% | [−0.5%, +3.0%] | p = 0.033, but the interval includes zero |
+> | **QPSO vs CLASSICAL PSO** | **−0.9%** | [−2.9%, +1.1%] | **p = 0.95 → indistinguishable** |
+> | QPSO → ALNS "hybrid" vs ALNS alone | −2.5% | [−4.6%, −0.4%] | p = 0.045 → significantly **worse** |
+> | ALNS vs OR-Tools | −4.1% | [−5.8%, −2.4%] | p < 0.0001 |
 >
-> 30 seeds, paired Wilcoxon signed-rank, identical instances and budgets.
+> 30 seeds, paired Wilcoxon signed-rank, identical instances and budgets,
+> lower is better. The same isolation was repeated on the **dynamic recovery**
+> problem and reached the same conclusion.
 > Re-run it yourself: `python scripts/bench.py --seeds 30 --budget 0.35`
 
 Then the two sentences that matter:

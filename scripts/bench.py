@@ -329,9 +329,27 @@ def main() -> None:
             _s, pv = _wx2(xs, ys)
             d = (st.mean(ys) - st.mean(xs)) / st.mean(ys) * 100
             verdict = "significant" if pv < 0.05 else "NOT significant"
-            print(f"  {label:<40} {d:+6.2f}%  p={pv:.4f}  n={len(pr)}  {verdict}")
+            # 95% CONFIDENCE INTERVAL on the mean PAIRED difference. A p-value
+            # says whether an effect is distinguishable from zero; an interval
+            # says how big it might plausibly be. For a result like "+0.1%,
+            # p = 0.95" the interval is the more useful statement, because it
+            # bounds the effect rather than merely failing to detect it.
+            diffs = [v - u for u, v in pr]          # reference minus arm
+            lo = hi = None
+            if len(diffs) > 1:
+                sd = st.stdev(diffs)
+                se = sd / math.sqrt(len(diffs))
+                half = 1.96 * se
+                m = st.mean(diffs)
+                base = st.mean(ys)
+                lo, hi = (m - half) / base * 100, (m + half) / base * 100
+            ci = "" if lo is None else f"  95% CI [{lo:+.2f}%, {hi:+.2f}%]"
+            print(f"  {label:<40} {d:+6.2f}%{ci}  p={pv:.4f}  n={len(pr)}"
+                  f"  {verdict}")
             tests[f"{a}_vs_{b}"] = {"p": float(pv), "n": len(pr),
-                                    "delta_pct": round(d, 3)}
+                                    "delta_pct": round(d, 3),
+                                    "ci95_low_pct": None if lo is None else round(lo, 3),
+                                    "ci95_high_pct": None if hi is None else round(hi, 3)}
 
         compare("A", "PSO", "QPSO vs CLASSICAL PSO (same decoder)")
         compare("A", "E", "QPSO+LS vs greedy+LS")
@@ -379,8 +397,25 @@ def main() -> None:
             pass
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    # The run manifest: exactly which instances and seeds produced these
+    # numbers, and the direction of the objective. "30 seeds" is not a
+    # reproducible statement; this is.
+    manifest = {
+        "seeds": list(range(args.seeds)),
+        "instance_family": f"random_instance(n={args.n}, k={args.k}, "
+                           f"capacity=110, zone_radius_m=1400)",
+        "instances": [f"demo-n{args.n}-k{args.k}-s{sd}" for sd in range(args.seeds)],
+        "budget_s": args.budget,
+        "matrix_buckets": 5,
+        "paired": True,
+        "reference_arm": "E",
+        "objective_direction": "lower is better",
+        "paired_rows": [k for k in tests if "_vs_" in k],
+        "reference_only_rows": [k for k in tests if "_vs_" not in k],
+    }
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump({"config": vars(args), "graph_source": src,
+                   "manifest": manifest,
                    "weights": w.to_dict(), "summary": summary, "wilcoxon": tests,
                    "raw": results}, f, indent=1)
     print(f"\nwritten: {args.out}")

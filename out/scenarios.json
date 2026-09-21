@@ -7,14 +7,14 @@
    "pass": true,
    "exercised": true,
    "detail": [
-    "instance seed 5; priority stop 2228244425 had 6.3 min of slack",
-    "closure radius 400 m -> 2 edges closed, 983 edges slowed x12 (denominator: this is what was exercised)",
-    "incumbent under new costs: INFEASIBLE (priority customer 2228244425 late (6.1 min past window))",
+    "instance seed 6; priority stop 1761893929 had 15.8 min of slack",
+    "closure radius 600 m -> 3 edges closed, 1043 edges slowed x12 (denominator: this is what was exercised)",
+    "incumbent under new costs: INFEASIBLE (priority customer 1761893929 late (12.0 min past window))",
     "case: CASE 2: incumbent infeasible -> accept best feasible, no epsilon test",
     "accepted with NO epsilon comparison: True",
     "recovery feasible: True",
-    "congestion exposure of the accepted plan: 68.3 min",
-    "end-to-end: 531 ms"
+    "congestion exposure of the accepted plan: 108.2 min",
+    "end-to-end: 545 ms"
    ]
   },
   {
@@ -24,8 +24,8 @@
    "exercised": true,
    "detail": [
     "edges congested x6: 861",
-    "stops reassigned: 26 of 30",
-    "case: CASE 1: accepted, 23.8% better than incumbent"
+    "stops reassigned: 25 of 30",
+    "case: CASE 1: accepted, 24.2% better than incumbent"
    ]
   },
   {
@@ -58,9 +58,17 @@
    "exercised": true,
    "detail": [
     "incidents injected: 4, edges closed total: 259",
-    "latencies: [563, 544, 548, 552] ms",
-    "p95: 552 ms (budget 500 ms)"
-   ]
+    "functional: plan still feasible after all four = True",
+    "latencies: [389, 469, 397, 429] ms",
+    "p95: 429 ms against a 500 ms target -> MEETS",
+    "functional correctness and the latency target are reported separately; one does not excuse the other"
+   ],
+   "performance": {
+    "metric": "recovery p95",
+    "value_ms": 428.6,
+    "target_ms": 500.0,
+    "meets_target": true
+   }
   },
   {
    "id": "S6",
@@ -71,7 +79,7 @@
     "edges released when the jam lifted: 690",
     "stops reassigned after the jam lifted: 0 of 30",
     "a cost DECREASE: scoped invalidation is unsound, so the engine forced a full matrix rebuild",
-    "case: CASE 1: rejected, only -13.9% better (< 1% threshold) - not worth the churn",
+    "case: CASE 1: rejected, only -13.8% better (< 1% threshold) - not worth the churn",
     "restraint is the feature here, not movement"
    ]
   },
@@ -88,17 +96,27 @@
   },
   {
    "id": "S8",
-   "title": "ambulance dispatch + green corridor",
+   "title": "ambulance corridor measurably affects the fleet",
    "pass": true,
    "exercised": true,
    "detail": [
+    "scene chosen deterministically: candidate 1, stop 7462980200 (first stop on a busy route, so its leg is driven while the ambulance is on the road)",
     "unit AMB-1 -> Receiving Hospital 1",
-    "ambulance: 7.1 min vs 11.9 min without priority = 4.8 min SAVED",
-    "corridor: 112 edges, window 0.0-15.1 min",
-    "COST OF PRIORITY to the fleet: +0.0 (2853.3 -> 2853.3)",
-    "emergency path latency: 112.1 ms (budget 200 ms)",
-    "fleet re-plan: 570 ms, CASE 1: rejected, only -30.2% better (< 1% threshold) - not worth the churn"
-   ]
+    "ambulance: 5.7 min vs 9.5 min without priority = 3.8 min SAVED",
+    "corridor: 77 edges, 77 per-edge occupancy windows averaging 281 s",
+    "delivery legs crossing the corridor inside its window: 5 (denominator: this is the interaction being claimed)",
+    "affected vehicles: [1]",
+    "COST OF PRIORITY to the fleet: +216.2 (2853.3 -> 3069.5)",
+    "emergency path latency: 98.0 ms (budget 200 ms)",
+    "fleet recovery: 711 ms, CASE 1: rejected, only 0.0% better (< 1% threshold) - not worth the churn",
+    "acceptance decided by the normal rule, not by the scenario: held"
+   ],
+   "performance": {
+    "metric": "dispatch + recovery",
+    "value_ms": 808.6,
+    "target_ms": 500.0,
+    "meets_target": false
+   }
   },
   {
    "id": "S9",

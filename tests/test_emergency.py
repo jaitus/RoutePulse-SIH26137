@@ -5,6 +5,13 @@ import math
 
 
 def test_dispatch_returns_both_sides_of_the_trade(engine):
+    """Both numbers are reported, and the price of priority is settled by the
+    RECOVERY path on the single freshly-rebuilt matrix.
+
+    Dispatch used to rebuild the matrix itself just to price the corridor, and
+    then replan() rebuilt it again moments later -- two O(n^2 x buckets)
+    rebuilds inside one user action. Dispatch now records the pre-corridor
+    incumbent and the recovery settles the cost against it."""
     engine.initial_plan(budget=0.4, seed=1)
     engine.seed_ambulances(2)
     lat = sum(engine.g.nodes[n][0] for n in engine.nodes) / len(engine.nodes)
@@ -12,9 +19,30 @@ def test_dispatch_returns_both_sides_of_the_trade(engine):
     d = engine.dispatch_ambulance(lat + 0.003, lon + 0.003, severity=2)
     assert d["ok"]
     assert d["time_saved_min"] >= 0
-    # priority is not free, and the price is reported rather than hidden
-    assert d["cost_of_priority"] is not None
-    assert d["fleet_cost_before"] is not None and d["fleet_cost_after"] is not None
+    assert engine.pending_priority_cost is not None, "no snapshot for the recovery"
+
+    res = engine.replan(budget=0.3, seed=1, engines=("alns",))
+    pri = res.priority
+    assert pri is not None, "the recovery did not settle the cost of priority"
+    assert pri["fleet_cost_before"] is not None
+    assert pri["fleet_cost_after"] is not None
+    assert pri["cost_of_priority"] is not None
+    assert engine.pending_priority_cost is None, "snapshot was not consumed"
+
+
+def test_dispatch_does_not_rebuild_the_matrix(engine):
+    """P0-03: one user action, one authoritative matrix refresh."""
+    engine.initial_plan(budget=0.4, seed=1)
+    engine.seed_ambulances(2)
+    lat = sum(engine.g.nodes[n][0] for n in engine.nodes) / len(engine.nodes)
+    lon = sum(engine.g.nodes[n][1] for n in engine.nodes) / len(engine.nodes)
+    before_builds = engine.tm.last_pairs_rebuilt
+    engine.tm.last_pairs_rebuilt = -1          # sentinel
+    d = engine.dispatch_ambulance(lat + 0.003, lon + 0.003, severity=2)
+    assert d["ok"]
+    assert engine.tm.last_pairs_rebuilt == -1, (
+        "dispatch rebuilt the travel-time matrix; the recovery path owns that")
+    engine.tm.last_pairs_rebuilt = before_builds
 
 
 def test_the_ambulance_never_drives_through_a_closure(engine):
@@ -37,6 +65,7 @@ def test_the_ambulance_never_drives_through_a_closure(engine):
     engine.ambulances[0].busy_until = None
 
     d2 = engine.dispatch_ambulance(lat + 0.003, lon + 0.003, severity=2)
+    assert d2.get("ok"), f"second dispatch failed: {d2.get('reason')}"
     leg2 = d2["leg_a_nodes"]
     used = [f"{a}->{b}" for a, b in zip(leg2, leg2[1:])
             if f"{a}->{b}" in set(picked)]

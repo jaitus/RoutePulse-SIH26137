@@ -37,7 +37,7 @@ PACKAGES = ["fastapi", "uvicorn", "ortools", "requests", "networkx", "numpy",
 # evidence, it is working material.
 EVIDENCE = ["bench_30seed.json", "latency.json", "scenarios.json",
             "convergence.json", "energy.json", "sb.json", "oracles.json",
-            "security.json"]
+            "security.json", "test_summary.json", "dynamic_arm.json"]
 
 
 def sha256(path: str) -> str:
@@ -85,6 +85,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--final", action="store_true",
                     help="copy the evidence set into out/final/ and hash it")
+    ap.add_argument("--allow-dirty", action="store_true",
+                    help="dry run only: freeze from an uncommitted tree and "
+                         "mark the manifest as provisional")
     args = ap.parse_args()
 
     env = environment()
@@ -106,9 +109,24 @@ def main() -> None:
         print(f"\nwritten: {os.path.join(OUT, 'environment.json')}")
         return
 
+    # A FINAL PACKAGE MUST NOT BE BUILT FROM UNCOMMITTED CODE.
+    # The manifest records a commit hash. If the tree is dirty that hash names
+    # code that is not what produced these files, and the whole point of the
+    # package -- "this evidence came from this commit" -- is false.
+    if env["git_dirty"] and not args.allow_dirty:
+        raise SystemExit(
+            "FINAL FREEZE BLOCKED: the working tree is dirty.\n"
+            "  The manifest would name commit "
+            f"{env['git_commit'][:12] or '?'} while the evidence came from "
+            "uncommitted code.\n"
+            "  Commit (or stash) first, then re-run "
+            "`python scripts/freeze_env.py --final`.\n"
+            "  Use --allow-dirty only for a dry run; it marks the manifest.")
+
     final = os.path.join(OUT, "final")
     os.makedirs(final, exist_ok=True)
-    manifest = {"environment": env, "files": {}, "missing": []}
+    manifest = {"environment": env, "files": {}, "missing": [],
+                "provisional": bool(env["git_dirty"])}
     print("\nevidence package:")
     for name in EVIDENCE:
         src = os.path.join(OUT, name)

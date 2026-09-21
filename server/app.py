@@ -45,6 +45,7 @@ import sys
 import threading
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -76,7 +77,7 @@ RATE_LIMIT_CHEAP = 240        # reads per minute per client
 RATE_LIMIT_SOLVE = 40         # solves per minute per client
 API_KEY = os.environ.get("ROUTEPULSE_API_KEY", "").strip()
 
-ALLOWED_ENGINES = ("emergency", "qpso", "alns", "sb", "ortools")
+ALLOWED_ENGINES = ("emergency", "qpso", "pso", "alns", "sb", "ortools")
 
 # The OPERATIONAL path is a single engine under one global deadline -- what a
 # dispatcher actually waits for, and the only configuration the 500 ms target
@@ -107,8 +108,30 @@ MAX_ADVANCE_S = 6 * 3600.0
 MATRIX_BUCKETS = 5
 OPERATIONAL_BUDGET_S = 0.25
 
+# The demo needs an engine on first page load, but a GET must not be what
+# creates it. So the default instance is built ONCE at application startup,
+# in a controlled lifespan hook, and every read endpoint stays honest about
+# whether state exists. Set ROUTEPULSE_NO_PRELOAD=1 to start genuinely cold
+# (used by the cold-start regression tests).
+PRELOAD_ON_STARTUP = os.environ.get("ROUTEPULSE_NO_PRELOAD", "").strip() != "1"
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    if PRELOAD_ON_STARTUP and STATE["engine"] is None:
+        try:
+            _boot()
+        except Exception:                                  # noqa: BLE001
+            # A failed preload must not stop the server from starting; the
+            # endpoints report engine_ready=false and POST /api/reset can
+            # retry. Silent success would be worse than a visible cold state.
+            import traceback
+            traceback.print_exc()
+    yield
+
+
 app = FastAPI(title="RoutePulse", docs_url=None, redoc_url=None,
-              openapi_url=None)
+              openapi_url=None, lifespan=lifespan)
 
 STATE: dict = {"engine": None, "graph": None, "inst": None,
                "last": None, "seed": 1}
@@ -174,15 +197,59 @@ async def http_error(_request: Request, exc: HTTPException):
     return JSONResponse({"ok": False, "error": exc.detail}, exc.status_code)
 
 
-def _in_bounds(lat: float, lon: float) -> bool:
+# Served-area bounds, cached. Computed from the graph the FIRST time one is
+# available and kept, so coordinate validation does not depend on an engine
+# existing. Cheap: four floats.
+_BOUNDS: tuple[float, float, float, float] | None = None
+
+
+def _served_bounds() -> tuple[float, float, float, float] | None:
+    """The served extract's lat/lon box, without building a solver engine.
+
+    Falls back to reading the cached graph file's node list directly, which is
+    a few hundred milliseconds once per process and never again.
+    """
+    global _BOUNDS
+    if _BOUNDS is not None:
+        return _BOUNDS
     g = STATE.get("engine").g if STATE.get("engine") else STATE.get("graph")
     if g is None:
-        return True
+        for path in (CACHE, CACHE_RAW):
+            if not os.path.exists(path):
+                continue
+            try:
+                with open(path, encoding="utf-8") as f:
+                    nodes = json.load(f).get("nodes") or {}
+                pts = list(nodes.values())
+                if pts:
+                    _BOUNDS = (min(p[0] for p in pts), min(p[1] for p in pts),
+                               max(p[0] for p in pts), max(p[1] for p in pts))
+                    return _BOUNDS
+            except (OSError, ValueError, KeyError, IndexError):
+                continue
+        return None
     lats = [la for la, _ in g.nodes.values()]
     lons = [lo for _, lo in g.nodes.values()]
+    _BOUNDS = (min(lats), min(lons), max(lats), max(lons))
+    return _BOUNDS
+
+
+def _in_bounds(lat: float, lon: float) -> bool:
+    """Is this coordinate inside the served network?
+
+    NEVER treat "no graph loaded" as "valid coordinate". The previous version
+    returned True when nothing was loaded, which made the service-area check
+    vacuous on exactly the request that creates state — the one where it
+    matters most. If the bounds genuinely cannot be determined the caller
+    raises 503 rather than accepting the point.
+    """
+    b = _served_bounds()
+    if b is None:
+        raise HTTPException(503, "served network not loaded; cannot validate "
+                                 "coordinates")
     pad = 0.05
-    return (min(lats) - pad <= lat <= max(lats) + pad
-            and min(lons) - pad <= lon <= max(lons) + pad)
+    return (b[0] - pad <= lat <= b[2] + pad
+            and b[1] - pad <= lon <= b[3] + pad)
 
 
 # --------------------------------------------------------------------- boot
@@ -377,11 +444,19 @@ def boot(request: Request):
     carries no caller-supplied parameters.
     """
     rate_limit(request, RATE_LIMIT_CHEAP, "cheap")
-    if STATE["engine"] is None:
-        with SOLVE_LOCK:
-            _boot()
     eng: Engine = STATE["engine"]
-    return {"ok": True,
+    if eng is None:
+        # A GET REPORTS; IT DOES NOT CREATE. The previous version called
+        # _boot() when the engine was missing, which meant an unauthenticated
+        # cold GET still allocated a graph, an instance and two travel-time
+        # matrices. That is not read-only however you describe it. State
+        # construction belongs to POST /api/reset and to the startup hook.
+        return {"ok": True, "engine_ready": False,
+                "graph_source": None, "nodes": None,
+                "customers": None, "vehicles": None,
+                "matrix_build_s": None, "sim_clock_s": None,
+                "horizon": HORIZON_LABEL, "planned": False}
+    return {"ok": True, "engine_ready": True,
             "graph_source": STATE.get("source", "?"),
             "nodes": len(eng.g.nodes),
             "customers": STATE["inst"].n,
@@ -398,8 +473,7 @@ def graph(request: Request):
     internet -- the demo must survive a dead venue Wi-Fi."""
     rate_limit(request, RATE_LIMIT_CHEAP, "cheap")
     if STATE["engine"] is None:
-        with SOLVE_LOCK:
-            _boot()
+        raise HTTPException(503, "no instance yet; POST /api/reset first")
     # Render the graph the ENGINE actually routes on, not the full city extract.
     # They differ (service-area subgraph), and rendering the larger one meant a
     # click outside the service area silently injected an event onto 0 edges --
@@ -454,6 +528,7 @@ def _replan_payload(chosen: tuple[str, ...], budget: float) -> dict:
         "candidates": res.candidates,
         "explanation": res.explanation,
         "churn": res.churn,
+        "priority": res.priority,
         "alert": res.alert,
         "energy": res.energy,
         "energy_at_scale": per_day(res.energy.get("mwh", 0.0), 400),
@@ -479,7 +554,7 @@ def plan(request: Request,
     require_key(x_api_key)
     rate_limit(request, RATE_LIMIT_SOLVE, "solve")
     if STATE["engine"] is None:
-        _boot()
+        raise HTTPException(503, "no instance yet; POST /api/reset first")
     eng: Engine = STATE["engine"]
     with SOLVE_LOCK:
         t0 = time.perf_counter()
@@ -541,9 +616,30 @@ def ambulance(a: AmbulanceIn, request: Request,
         d["units"] = [{"name": u.name,
                        "lat": eng.g.nodes[u.node][0], "lon": eng.g.nodes[u.node][1]}
                       for u in eng.ambulances if u.node in eng.g.nodes]
+        # Per-edge corridor occupancy, exposed so a reviewer can check that
+        # the windows are per-edge rather than one route-level blanket.
+        res = eng.last_emergency
+        d["corridor_windows"] = [
+            {"edge": k, "start_s": round(a0, 1), "end_s": round(b0, 1)}
+            for k, a0, b0 in (res.corridor_windows if res else [])][:400]
+
         # ---- the fleet reacts, in the same request
         if recover and eng.incumbent is not None:
             d["recovery"] = _replan_payload(chosen, budget)
+            # The price of priority is settled by the recovery path, on the one
+            # freshly rebuilt matrix -- dispatch no longer rebuilds it first.
+            pri = d["recovery"].get("priority") or {}
+            d["fleet_cost_before"] = pri.get("fleet_cost_before")
+            d["fleet_cost_after"] = pri.get("fleet_cost_after")
+            d["cost_of_priority"] = pri.get("cost_of_priority")
+            d["affected_vehicles"] = pri.get("affected_vehicles", [])
+            d["route_corridor_overlaps"] = pri.get("route_corridor_overlaps", 0)
+            d["interaction"] = bool(pri.get("interaction"))
+            d["recovery_decision"] = {
+                "accepted": d["recovery"].get("accepted"),
+                "case": d["recovery"].get("case"),
+                "reason": (d["recovery"].get("explanation") or [None])[0],
+            }
         d["closed"] = _closed_payload()
         d["events"] = eng.event_log
         d["sim_clock_s"] = round(eng.now, 1)
@@ -612,7 +708,7 @@ def reset(request: Request,
     rate_limit(request, RATE_LIMIT_SOLVE, "solve")
     with SOLVE_LOCK:
         info = _boot(n, k, seed)
-    return {"ok": True, **info}
+    return {"ok": True, "engine_ready": True, **info}
 
 
 @app.post("/api/advance")
@@ -765,11 +861,13 @@ def evidence(request: Request):
     scen = _read_json("scenarios.json")
     sb = _read_json("sb.json")
     energy = _read_json("energy.json")
+    dyn = _read_json("dynamic_arm.json")
 
     out: dict = {"missing": []}
     for name, blob in (("benchmark", bench), ("latency", latency),
                        ("convergence", conv), ("scenarios", scen),
-                       ("simulated_bifurcation", sb), ("energy", energy)):
+                       ("simulated_bifurcation", sb), ("energy", energy),
+                       ("dynamic_arm", dyn)):
         if blob is None:
             out["missing"].append(name)
 
@@ -795,6 +893,13 @@ def evidence(request: Request):
         }
     if energy:
         out["energy"] = energy
+    if dyn:
+        # The rows are 72 recovery runs; the sheet only needs the analysis and
+        # the verdict, so the heavy per-seed detail stays in the file.
+        out["dynamic_arm"] = {
+            "config": dyn.get("config"), "events": dyn.get("events"),
+            "analysis": dyn.get("analysis"), "verdict": dyn.get("verdict"),
+        }
     return out
 
 

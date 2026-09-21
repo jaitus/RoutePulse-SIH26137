@@ -436,3 +436,62 @@ It is not a measurement of observed congestion. Nothing in this system observes
 traffic; the base profile is a hand-authored time-of-day model and the overlays
 are injected events. $E(x)$ is the model's own estimate of how much the events
 cost this plan, and it is exactly as real as the model is.
+
+---
+
+## 13. The corridor sampling problem
+
+§11.3 records that the Ising reduction cannot see time. The production planner
+has a smaller version of the same defect, and it is worth writing down because
+it was introduced *by* an accuracy improvement.
+
+### 13.1 The tension
+
+The travel-time matrix samples the effective cost profile at $k$ departure times
+$\{b_1,\dots,b_k\}$ and interpolates between them. Making the green corridor
+per-edge (§ P0-04) replaced one route-level window with occupancy windows of
+roughly
+
+$$
+|w_e| \approx 300\ \text{s}
+$$
+
+per edge. The production sampling times, placed at the time-of-day profile's
+knots, are **hours** apart. For almost every corridor edge,
+
+$$
+\big[\,b_i,\ b_{i+1}\,\big] \cap w_e = \emptyset \quad\text{for all } i,
+$$
+
+so the interpolated cost never sees the overlay. The corridor became more
+physically faithful and, at the same time, invisible to the optimiser that is
+supposed to react to it. Measured: the cost of priority to the fleet fell to
+exactly $0.0$ while delivery legs demonstrably crossed corridor edges inside
+their windows.
+
+### 13.2 The rule
+
+Sampling must cover any interval on which the effective profile differs
+materially from the base profile. So while a corridor is live the matrix adds
+its own sampling time,
+
+$$
+b^{\*} = \tfrac{1}{2}\Big(\min_e w_e^{\text{start}} + \max_e w_e^{\text{end}}\Big),
+$$
+
+and drops it again when the corridor expires. One extra bucket, inserted
+incrementally — the existing buckets are unaffected, because a bucket *is* a
+fixed departure time and none of the others moved.
+
+Measured alternatives, on the same scene: sampling at the midpoint alone reports
+the **largest** effect and costs the least, because it lands where the corridor
+is at full strength; sampling the start and end as well costs more and
+*understates* the event, since the corridor has decayed at both ends.
+
+### 13.3 Why this is stated rather than fixed silently
+
+An emergency re-plan therefore costs more than an ordinary one — it carries an
+extra bucket. That is a real, measurable consequence of making the model honest,
+and the scenario suite reports the ambulance path's latency against the target
+separately from its functional verdict rather than averaging the two events
+into one number.

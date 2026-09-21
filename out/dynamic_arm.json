@@ -1,0 +1,850 @@
+{
+ "graph": "OpenStreetMap Bengaluru (simplified), 6,420 junctions",
+ "config": {
+  "seeds": 12,
+  "n": 30,
+  "k": 5,
+  "budget": 0.25,
+  "out": "C:\\PROJECTS\\SIH26137\\out\\dynamic_arm.json"
+ },
+ "events": [
+  "closure",
+  "congestion",
+  "breakdown"
+ ],
+ "rows": [
+  {
+   "event": "closure",
+   "seed": 0,
+   "qpso": {
+    "score": 2482.210912104837,
+    "feasible": true,
+    "latency_ms": 396.7,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2431.6,
+    "congestion_exposure_s": 33.5
+   },
+   "pso": {
+    "score": 2482.210912104837,
+    "feasible": true,
+    "latency_ms": 377.87,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2431.6,
+    "congestion_exposure_s": 33.5
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 1,
+   "qpso": {
+    "score": 3651.3416476449047,
+    "feasible": true,
+    "latency_ms": 437.53,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3170.2,
+    "congestion_exposure_s": 322.9
+   },
+   "pso": {
+    "score": 3651.3416476449047,
+    "feasible": true,
+    "latency_ms": 451.11,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3170.2,
+    "congestion_exposure_s": 322.9
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 2,
+   "qpso": {
+    "score": 3563.2607810498375,
+    "feasible": true,
+    "latency_ms": 418.37,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3394.0,
+    "congestion_exposure_s": 114.2
+   },
+   "pso": {
+    "score": 3563.2607810498375,
+    "feasible": true,
+    "latency_ms": 418.0,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3394.0,
+    "congestion_exposure_s": 114.2
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 3,
+   "qpso": {
+    "score": 4690.462178369119,
+    "feasible": true,
+    "latency_ms": 399.25,
+    "churn": 1.1333,
+    "accepted": true,
+    "incumbent_before": 2947.3,
+    "congestion_exposure_s": 640.0
+   },
+   "pso": {
+    "score": 4516.308569424813,
+    "feasible": true,
+    "latency_ms": 467.06,
+    "churn": 0.85,
+    "accepted": true,
+    "incumbent_before": 2947.3,
+    "congestion_exposure_s": 576.3
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 4,
+   "qpso": {
+    "score": 3241.375695677507,
+    "feasible": true,
+    "latency_ms": 411.69,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3040.6,
+    "congestion_exposure_s": 134.7
+   },
+   "pso": {
+    "score": 3241.375695677507,
+    "feasible": true,
+    "latency_ms": 421.84,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3040.6,
+    "congestion_exposure_s": 134.7
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 5,
+   "qpso": {
+    "score": 5092.3688888672295,
+    "feasible": true,
+    "latency_ms": 423.6,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2989.5,
+    "congestion_exposure_s": 1399.4
+   },
+   "pso": {
+    "score": 5092.3688888672295,
+    "feasible": true,
+    "latency_ms": 435.41,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2989.5,
+    "congestion_exposure_s": 1399.4
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 6,
+   "qpso": {
+    "score": 3079.275368035792,
+    "feasible": true,
+    "latency_ms": 387.19,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2893.3,
+    "congestion_exposure_s": 124.6
+   },
+   "pso": {
+    "score": 3079.275368035792,
+    "feasible": true,
+    "latency_ms": 393.9,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2893.3,
+    "congestion_exposure_s": 124.6
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 7,
+   "qpso": {
+    "score": 3365.9430996718825,
+    "feasible": true,
+    "latency_ms": 411.07,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2895.4,
+    "congestion_exposure_s": 314.7
+   },
+   "pso": {
+    "score": 3365.9430996718825,
+    "feasible": true,
+    "latency_ms": 402.62,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2895.4,
+    "congestion_exposure_s": 314.7
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 8,
+   "qpso": {
+    "score": 4334.469485096551,
+    "feasible": true,
+    "latency_ms": 442.53,
+    "churn": 1.0667,
+    "accepted": true,
+    "incumbent_before": 2870.4,
+    "congestion_exposure_s": 575.6
+   },
+   "pso": {
+    "score": 4833.808795256835,
+    "feasible": true,
+    "latency_ms": 449.7,
+    "churn": 1.1833,
+    "accepted": true,
+    "incumbent_before": 2870.4,
+    "congestion_exposure_s": 415.2
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 9,
+   "qpso": {
+    "score": 2917.3841112216396,
+    "feasible": true,
+    "latency_ms": 434.7,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2892.9,
+    "congestion_exposure_s": 16.4
+   },
+   "pso": {
+    "score": 2917.3841112216396,
+    "feasible": true,
+    "latency_ms": 443.11,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2892.9,
+    "congestion_exposure_s": 16.4
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 10,
+   "qpso": {
+    "score": 2937.6340831972816,
+    "feasible": true,
+    "latency_ms": 414.2,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2816.7,
+    "congestion_exposure_s": 79.3
+   },
+   "pso": {
+    "score": 2937.6340831972816,
+    "feasible": true,
+    "latency_ms": 415.54,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2816.7,
+    "congestion_exposure_s": 79.3
+   }
+  },
+  {
+   "event": "closure",
+   "seed": 11,
+   "qpso": {
+    "score": 4336.781189798133,
+    "feasible": true,
+    "latency_ms": 457.16,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3006.2,
+    "congestion_exposure_s": 888.0
+   },
+   "pso": {
+    "score": 4336.781189798133,
+    "feasible": true,
+    "latency_ms": 437.87,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3006.2,
+    "congestion_exposure_s": 888.0
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 0,
+   "qpso": {
+    "score": 4234.014190568548,
+    "feasible": true,
+    "latency_ms": 410.96,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2431.6,
+    "congestion_exposure_s": 1195.6
+   },
+   "pso": {
+    "score": 4234.014190568548,
+    "feasible": true,
+    "latency_ms": 436.98,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2431.6,
+    "congestion_exposure_s": 1195.6
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 1,
+   "qpso": {
+    "score": 4417.369180185565,
+    "feasible": true,
+    "latency_ms": 411.14,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3249.1,
+    "congestion_exposure_s": 784.7
+   },
+   "pso": {
+    "score": 4238.860284131013,
+    "feasible": true,
+    "latency_ms": 459.03,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3170.2,
+    "congestion_exposure_s": 717.9
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 2,
+   "qpso": {
+    "score": 4606.67573686544,
+    "feasible": true,
+    "latency_ms": 452.61,
+    "churn": 0.45,
+    "accepted": true,
+    "incumbent_before": 3394.0,
+    "congestion_exposure_s": 609.3
+   },
+   "pso": {
+    "score": 4606.67573686544,
+    "feasible": true,
+    "latency_ms": 443.05,
+    "churn": 0.45,
+    "accepted": true,
+    "incumbent_before": 3394.0,
+    "congestion_exposure_s": 609.3
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 3,
+   "qpso": {
+    "score": 5095.396281659066,
+    "feasible": true,
+    "latency_ms": 437.95,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2947.3,
+    "congestion_exposure_s": 1432.9
+   },
+   "pso": {
+    "score": 5095.396281659066,
+    "feasible": true,
+    "latency_ms": 448.12,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2947.3,
+    "congestion_exposure_s": 1432.9
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 4,
+   "qpso": {
+    "score": 6197.28892678224,
+    "feasible": true,
+    "latency_ms": 483.34,
+    "churn": 1.25,
+    "accepted": true,
+    "incumbent_before": 3040.6,
+    "congestion_exposure_s": 1930.1
+   },
+   "pso": {
+    "score": 6197.28892678224,
+    "feasible": true,
+    "latency_ms": 451.21,
+    "churn": 1.25,
+    "accepted": true,
+    "incumbent_before": 3040.6,
+    "congestion_exposure_s": 1930.1
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 5,
+   "qpso": {
+    "score": 8060.927570988679,
+    "feasible": true,
+    "latency_ms": 439.8,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2989.5,
+    "congestion_exposure_s": 3377.4
+   },
+   "pso": {
+    "score": 8060.927570988679,
+    "feasible": true,
+    "latency_ms": 429.08,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2989.5,
+    "congestion_exposure_s": 3377.4
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 6,
+   "qpso": {
+    "score": 4897.2449793676815,
+    "feasible": true,
+    "latency_ms": 450.21,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2893.3,
+    "congestion_exposure_s": 1342.9
+   },
+   "pso": {
+    "score": 4897.2449793676815,
+    "feasible": true,
+    "latency_ms": 452.23,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 2893.3,
+    "congestion_exposure_s": 1342.9
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 7,
+   "qpso": {
+    "score": 5153.940562999532,
+    "feasible": true,
+    "latency_ms": 470.12,
+    "churn": 1.1,
+    "accepted": true,
+    "incumbent_before": 2895.4,
+    "congestion_exposure_s": 1130.8
+   },
+   "pso": {
+    "score": 5153.940562999532,
+    "feasible": true,
+    "latency_ms": 467.68,
+    "churn": 1.1,
+    "accepted": true,
+    "incumbent_before": 2895.4,
+    "congestion_exposure_s": 1130.8
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 8,
+   "qpso": {
+    "score": 6283.347506846108,
+    "feasible": true,
+    "latency_ms": 480.79,
+    "churn": 1.2,
+    "accepted": true,
+    "incumbent_before": 2870.4,
+    "congestion_exposure_s": 1744.3
+   },
+   "pso": {
+    "score": 6583.320127297873,
+    "feasible": true,
+    "latency_ms": 493.56,
+    "churn": 0.6167,
+    "accepted": true,
+    "incumbent_before": 2870.4,
+    "congestion_exposure_s": 2099.8
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 9,
+   "qpso": {
+    "score": 5178.112237695154,
+    "feasible": true,
+    "latency_ms": 474.18,
+    "churn": 0.8167,
+    "accepted": true,
+    "incumbent_before": 2892.9,
+    "congestion_exposure_s": 1222.3
+   },
+   "pso": {
+    "score": 5178.112237695154,
+    "feasible": true,
+    "latency_ms": 489.77,
+    "churn": 0.8167,
+    "accepted": true,
+    "incumbent_before": 2892.9,
+    "congestion_exposure_s": 1222.3
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 10,
+   "qpso": {
+    "score": 5232.694066106091,
+    "feasible": true,
+    "latency_ms": 448.6,
+    "churn": 1.1333,
+    "accepted": true,
+    "incumbent_before": 2816.7,
+    "congestion_exposure_s": 1376.4
+   },
+   "pso": {
+    "score": 5232.694066106091,
+    "feasible": true,
+    "latency_ms": 415.11,
+    "churn": 1.1333,
+    "accepted": true,
+    "incumbent_before": 2816.7,
+    "congestion_exposure_s": 1376.4
+   }
+  },
+  {
+   "event": "congestion",
+   "seed": 11,
+   "qpso": {
+    "score": 7335.088364778938,
+    "feasible": true,
+    "latency_ms": 477.36,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3006.2,
+    "congestion_exposure_s": 2874.6
+   },
+   "pso": {
+    "score": 7335.088364778938,
+    "feasible": true,
+    "latency_ms": 471.68,
+    "churn": 0.0,
+    "accepted": false,
+    "incumbent_before": 3006.2,
+    "congestion_exposure_s": 2874.6
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 0,
+   "qpso": {
+    "score": 3090.0123832621307,
+    "feasible": true,
+    "latency_ms": 427.58,
+    "churn": 0.7059,
+    "accepted": true,
+    "incumbent_before": 2431.6,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3090.0123832621307,
+    "feasible": true,
+    "latency_ms": 429.53,
+    "churn": 0.7059,
+    "accepted": true,
+    "incumbent_before": 2431.6,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 1,
+   "qpso": {
+    "score": 3663.2482011562906,
+    "feasible": true,
+    "latency_ms": 434.58,
+    "churn": 0.8095,
+    "accepted": true,
+    "incumbent_before": 3170.2,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3573.7472191414663,
+    "feasible": true,
+    "latency_ms": 469.57,
+    "churn": 0.881,
+    "accepted": true,
+    "incumbent_before": 3170.2,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 2,
+   "qpso": {
+    "score": 3875.0800196493988,
+    "feasible": true,
+    "latency_ms": 434.46,
+    "churn": 0.975,
+    "accepted": true,
+    "incumbent_before": 3394.0,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3875.0800196493988,
+    "feasible": true,
+    "latency_ms": 435.59,
+    "churn": 0.975,
+    "accepted": true,
+    "incumbent_before": 3394.0,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 3,
+   "qpso": {
+    "score": 3160.3287097214748,
+    "feasible": true,
+    "latency_ms": 401.54,
+    "churn": 0.431,
+    "accepted": true,
+    "incumbent_before": 2947.3,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3160.3287097214748,
+    "feasible": true,
+    "latency_ms": 404.04,
+    "churn": 0.431,
+    "accepted": true,
+    "incumbent_before": 2947.3,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 4,
+   "qpso": {
+    "score": 3190.725442907092,
+    "feasible": true,
+    "latency_ms": 467.54,
+    "churn": 1.1667,
+    "accepted": true,
+    "incumbent_before": 3040.6,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3190.725442907092,
+    "feasible": true,
+    "latency_ms": 432.6,
+    "churn": 1.1667,
+    "accepted": true,
+    "incumbent_before": 3040.6,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 5,
+   "qpso": {
+    "score": 3240.426624030114,
+    "feasible": true,
+    "latency_ms": 429.87,
+    "churn": 0.75,
+    "accepted": true,
+    "incumbent_before": 2989.5,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3240.426624030114,
+    "feasible": true,
+    "latency_ms": 413.22,
+    "churn": 0.75,
+    "accepted": true,
+    "incumbent_before": 2989.5,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 6,
+   "qpso": {
+    "score": 3382.149160373912,
+    "feasible": true,
+    "latency_ms": 434.14,
+    "churn": 1.0833,
+    "accepted": true,
+    "incumbent_before": 2893.3,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3382.149160373912,
+    "feasible": true,
+    "latency_ms": 451.79,
+    "churn": 1.0833,
+    "accepted": true,
+    "incumbent_before": 2893.3,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 7,
+   "qpso": {
+    "score": 3390.7061613265355,
+    "feasible": true,
+    "latency_ms": 443.09,
+    "churn": 0.9286,
+    "accepted": true,
+    "incumbent_before": 2895.4,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3367.585610903731,
+    "feasible": true,
+    "latency_ms": 450.27,
+    "churn": 1.1429,
+    "accepted": true,
+    "incumbent_before": 2895.4,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 8,
+   "qpso": {
+    "score": 3310.3496307990335,
+    "feasible": true,
+    "latency_ms": 470.31,
+    "churn": 0.575,
+    "accepted": true,
+    "incumbent_before": 2870.4,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3330.2590743548953,
+    "feasible": true,
+    "latency_ms": 465.81,
+    "churn": 0.575,
+    "accepted": true,
+    "incumbent_before": 2870.4,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 9,
+   "qpso": {
+    "score": 3525.312796787769,
+    "feasible": true,
+    "latency_ms": 454.18,
+    "churn": 0.8333,
+    "accepted": true,
+    "incumbent_before": 2892.9,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3991.401700117901,
+    "feasible": true,
+    "latency_ms": 453.89,
+    "churn": 1.1944,
+    "accepted": true,
+    "incumbent_before": 2892.9,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 10,
+   "qpso": {
+    "score": 3025.970630104527,
+    "feasible": true,
+    "latency_ms": 406.83,
+    "churn": 0.925,
+    "accepted": true,
+    "incumbent_before": 2816.7,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3025.970630104527,
+    "feasible": true,
+    "latency_ms": 409.43,
+    "churn": 0.925,
+    "accepted": true,
+    "incumbent_before": 2816.7,
+    "congestion_exposure_s": 0.0
+   }
+  },
+  {
+   "event": "breakdown",
+   "seed": 11,
+   "qpso": {
+    "score": 3449.547847601086,
+    "feasible": true,
+    "latency_ms": 458.11,
+    "churn": 0.575,
+    "accepted": true,
+    "incumbent_before": 3006.2,
+    "congestion_exposure_s": 0.0
+   },
+   "pso": {
+    "score": 3449.547847601086,
+    "feasible": true,
+    "latency_ms": 479.56,
+    "churn": 0.575,
+    "accepted": true,
+    "incumbent_before": 3006.2,
+    "congestion_exposure_s": 0.0
+   }
+  }
+ ],
+ "analysis": {
+  "score": {
+   "n": 36,
+   "qpso_mean": 4185.791,
+   "pso_mean": 4208.569,
+   "delta_pct": 0.541,
+   "ci95_low_pct": -0.483,
+   "ci95_high_pct": 1.565,
+   "p": 0.5754030229127536,
+   "lower_is_better": true,
+   "significant": false
+  },
+  "latency_ms": {
+   "n": 36,
+   "qpso_mean": 437.036,
+   "pso_mean": 440.745,
+   "delta_pct": 0.842,
+   "ci95_low_pct": -0.691,
+   "ci95_high_pct": 2.374,
+   "p": 0.2581243624736089,
+   "lower_is_better": true,
+   "significant": false
+  },
+  "churn": {
+   "n": 36,
+   "qpso_mean": 0.497,
+   "pso_mean": 0.495,
+   "delta_pct": -0.579,
+   "ci95_low_pct": -9.336,
+   "ci95_high_pct": 8.178,
+   "p": 0.916511907863894,
+   "lower_is_better": true,
+   "significant": false
+  },
+  "feasible_runs": {
+   "qpso": 36,
+   "pso": 36,
+   "total": 36
+  }
+ },
+ "verdict": "the quantum-inspired update rule does NOT separate from classical PSO on the dynamic recovery problem either -- the same conclusion as the static benchmark"
+}

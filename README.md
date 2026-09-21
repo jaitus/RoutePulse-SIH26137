@@ -43,7 +43,7 @@ Both views carry a print stylesheet; Ctrl+P produces a usable hard copy.
 ### Reproducing every number
 
 ```bash
-python -m pytest tests/ -q                         # 62 unit tests
+python scripts/run_tests.py                        # unit suite -> out/test_summary.json
 python scripts/bench.py --seeds 30 --budget 0.35   # ablation + adoption gates
 python scripts/latency.py --trials 20 --scale 30,60,100
 python scripts/convergence.py --budget 4.0 --seeds 3 --cold
@@ -51,7 +51,8 @@ python scripts/scenarios.py                        # S1-S9
 python scripts/oracles.py                          # exact VRP + exact TD path
 python scripts/sb_eval.py                          # Simulated Bifurcation study
 python scripts/energy.py --trials 12
-python scripts/security_check.py                   # needs a live server
+python scripts/dynamic_arm.py                      # QPSO vs PSO on recovery
+python scripts/security_check.py --rate            # needs a live server
 python scripts/freeze_env.py --final               # hash the evidence package
 python scripts/report.py                           # regenerate the status report
 ```
@@ -106,6 +107,27 @@ emergency cost model — solved separately and coupled through the cost layer.
 Its predicted road occupancy becomes a temporary cost increase on normal-vehicle
 routing, and the delivery optimiser reacts to that, exactly as it reacts to any
 other incident.
+
+**One dispatch, one matrix rebuild.** Dispatch used to refresh the travel-time
+matrix so it could price the corridor, and then the recovery refreshed it again
+moments later — two O(n² × buckets) rebuilds inside one user action. Dispatch now
+records the pre-corridor incumbent and the recovery path performs the single
+authoritative refresh, then settles the price of priority against that snapshot.
+
+**The interaction is measured, not assumed.** A corridor through streets nobody
+was using, at a time nobody was there, costs the fleet nothing — and the system
+reports that rather than printing `+0.0` as though it were a finding. Every
+dispatch reports how many delivery legs actually crossed the corridor inside
+its per-edge window, and which vehicles. S8 chooses its scene deterministically
+so the interaction is real, and fails if the recorded cost of priority is zero
+while the scenario claims an interaction.
+
+**A short-lived corridor needs its own matrix sample.** A green corridor is warm
+for ten or fifteen minutes; the production matrix samples at 0, 1 h, 4 h, 9 h and
+14 h. Per-edge windows made the corridor physically accurate and simultaneously
+invisible to the planner's cost model. The matrix therefore samples the
+corridor's own window while one is live — one extra bucket, inserted
+incrementally, during an emergency only.
 
 **QPSO and ALNS are two separate engines, not a hybrid chain.** A chained
 QPSO → ALNS arm was measured against both parents on the same budget and does
@@ -252,18 +274,21 @@ with the file each comes from:
 
 | | | source |
 |---|---|---|
-| Traffic-Aware ALNS vs greedy + local search | **+8.3%, p < 0.0001 → adopted** | `out/bench_30seed.json` |
-| QPSO + LS vs greedy + local search | +1.9%, p = 0.036 — but the random-restart control also clears at +1.3% | `out/bench_30seed.json` |
-| **QPSO vs classical PSO** | **+0.1%, p = 0.95 — indistinguishable.** Same encoding, decoder, improvement layer and budget; only the update rule differs | `out/bench_30seed.json` |
-| QPSO → ALNS chained hybrid | −1.7% against ALNS alone, p = 0.22 — **two engines, not a hybrid** | `out/bench_30seed.json` |
-| ALNS vs OR-Tools | OR-Tools still ahead by 5.1%, p < 0.0001 (it was ~13% before ALNS) | `out/bench_30seed.json` |
-| Gap to the **true optimum** on exhaustively enumerable instances | ALNS / QPSO / PSO reach it; greedy+LS does not | `out/oracles.json` |
+| Traffic-Aware ALNS vs greedy + local search | **+9.7%**, 95% CI [+7.0%, +12.5%], p < 0.0001 → **adopted** | `out/bench_30seed.json` |
+| **QPSO vs classical PSO** | **−0.9%**, 95% CI [−2.9%, +1.1%], p = 0.95 — **indistinguishable**, and the interval says so as well as the test | `out/bench_30seed.json` |
+| QPSO + LS vs greedy + local search | +1.2%, p = 0.033 by the rank test — but the 95% CI [−0.5%, +3.0%] **includes zero** | `out/bench_30seed.json` |
+| QPSO → ALNS chained hybrid | −2.5% against ALNS alone, p = 0.045 — significantly **worse**; two engines, not a hybrid | `out/bench_30seed.json` |
+| ALNS vs OR-Tools | OR-Tools still ahead by 4.1%, p < 0.0001 (it was ~13% before ALNS) | `out/bench_30seed.json` |
+| **QPSO vs classical PSO on the DYNAMIC recovery problem** | same conclusion as the static benchmark | `out/dynamic_arm.json` |
+| Gap to the **true optimum** on exhaustively enumerable instances | measured by full enumeration, per solver | `out/oracles.json` |
 | Travel-time matrix error vs exact TD Dijkstra | 4.5% mean absolute at the production setting | `out/oracles.json` |
-| Operational latency | meets 500 ms p95 at demo scale, **does not at 60 and 100 stops** | `out/latency.json` |
-| Scenarios S1–S9 | 9/9 with every condition exercised, S1 on Case 2 | `out/scenarios.json` |
+| Operational latency | meets 500 ms p95 at 30 and 60 stops, **does not at 100** | `out/latency.json` |
+| Scenarios S1–S9 | 9/9 with every condition exercised; S1 on Case 2; S5 and S8 report functional and performance verdicts separately | `out/scenarios.json` |
+| Ambulance interaction | S8 picks its scene deterministically and **fails** if the corridor does not measurably touch the fleet | `out/scenarios.json` |
 | Simulated Bifurcation | exact Ising ground states, and still beaten by 2-opt | `out/sb.json` |
 | Energy per re-plan | milliwatt-hours; negligible beside the diesel saved | `out/energy.json` |
-| Security suite | passes in both open and API-key mode | `out/security.json` |
+| Security suite | passes open and API-key mode, rate limiter exercised to 429 | `out/security.json` |
+| Unit suite | count measured, never typed | `out/test_summary.json` |
 
 `python scripts/report.py` regenerates a standalone status report from these
 files. Every figure in it is read at generation time and carries its source;
@@ -272,16 +297,21 @@ none is typed.
 ### What these numbers say
 
 **1. The improvement layer does the work, and the *quantum* part does nothing
-distinguishable.** Removing local search costs ~23%. The population layer as a
-whole is worth +1.9% (p = 0.036) — but a random-restart control with no swarm
-pull at all clears at +1.3%, and the decisive comparison is the new one:
-**QPSO against a classical PSO control is +0.1% at p = 0.95.** Identical
-encoding, decoder, improvement layer, restart logic and budget; only the line
-that moves a particle differs. A random-restart arm can tell you whether having
-a population helps; only the PSO control can tell you whether the
-*quantum-inspired* rule does, and it does not. This is exactly the critique
-Sörensen (2015) makes of metaphor-named metaheuristics, and the control arm was
-built to detect it.
+distinguishable.** Removing local search costs ~23%. The decisive comparison is
+**QPSO against a classical PSO control: −0.9%, 95% CI [−2.9%, +1.1%],
+p = 0.95.** Identical encoding, decoder, improvement layer, restart logic and
+budget; only the line that moves a particle differs. A random-restart arm can
+tell you whether having a population helps at all; only the PSO control can tell
+you whether the *quantum-inspired* rule does, and it does not. This is the
+critique Sörensen (2015) makes of metaphor-named metaheuristics, and the control
+arm was built to detect it.
+
+The confidence intervals earn their place on a second row. QPSO + LS beats
+greedy + local search by +1.2% at p = 0.033 — significant by the rank test —
+while the 95% interval on the mean paired difference runs from −0.5% to +3.0%
+and **includes zero**. Both statements are true: the ranks move consistently,
+the magnitude does not exclude no-effect. Reporting only the p-value would have
+turned a small, fragile effect into a clean claim.
 
 **2. ALNS earned its place and SB did not.** Both were built from the blueprint
 and put through the same gate: beat the existing improvement layer from the same
@@ -289,7 +319,7 @@ start, on the same budget, over 30 paired seeds. One passed and shipped. One
 failed and was kept, because *why* it failed is the most interesting result in
 the project.
 
-**3. OR-Tools is still ahead on static quality — by 5.1%, down from ~13%.**
+**3. OR-Tools is still ahead on static quality — by 4.1%, down from ~13%.**
 Adopting ALNS closed more than half the gap and we still do not claim to have
 closed it. The claim is the dynamic, commitment-aware recovery path with
 end-to-end latency accounting — plus an absolute one: on instances small enough
@@ -374,12 +404,18 @@ any check fails.
 
 ## Tests
 
-`python -m pytest tests/ -q` — 62 tests covering the validator and feasibility
-gate, congestion exposure, FIFO under every overlay type, the travel-time matrix
-and both invalidation directions, bucket placement, commitment safety through
-10,000 randomised decodes and through ALNS destroy/repair, the three-case
-acceptance rule, vehicle-state advance, overlay composition, emergency routing
-and corridor windows, API bounds, API-key enforcement, and the boot endpoint.
+`python scripts/run_tests.py` runs the suite and writes the count to
+`out/test_summary.json`. **Nothing types a test count** — the report reads that
+file, because a hand-written count silently rots the moment anyone adds a test.
+
+Coverage: the validator and feasibility gate, congestion exposure, FIFO under
+every overlay type, the travel-time matrix and both invalidation directions,
+profile-aligned bucket placement, commitment safety through 10,000 randomised
+decodes and through ALNS destroy/repair, the three-case acceptance rule,
+vehicle-state advance, overlay composition, emergency routing, per-edge corridor
+windows, dispatch performing no redundant matrix rebuild, cold-server boot
+semantics, coordinate validation before any engine exists, API bounds, and
+API-key enforcement.
 
 ---
 
@@ -402,8 +438,11 @@ routepulse/
     ortools_baseline.py  fair comparator
 server/           FastAPI + zero-dependency canvas control sheet
 scripts/          bench, latency, convergence, scenarios, sb_eval, energy,
-                  oracles, security_check, freeze_env, report
-tests/            62 unit tests
+                  oracles, dynamic_arm, security_check, run_tests,
+                  freeze_env, report
+tests/            the unit suite; `python scripts/run_tests.py` writes the
+                  measured count to out/test_summary.json, and the report
+                  reads that file rather than a number typed here
 FORMULATION.md    Deliverable 2, incl. the Ising reduction and exposure term
 DEMO.md           the demo script
 ```
@@ -415,9 +454,10 @@ DEMO.md           the demo script
 - **The road network is real; the demand is not.** Delivery stops are synthetic
   and the traffic profile is a hand-authored time-of-day model, **not measured
   data**. Nothing in this project calls it live traffic.
-- **The 500 ms target holds at demo scale and not above it.** Measured at 30, 60
-  and 100 stops and reported per size. The matrix dominates; the escape hatch
-  is known and has not been built.
+- **The 500 ms target holds at 30 and 60 stops and not at 100.** Measured at
+  each size and reported per size, never averaged. The travel-time matrix
+  dominates at the large end; the escape hatch is known (an incremental matrix)
+  and has not been built.
 - **OR-Tools beats us on static solution quality.** The claim is the dynamic
   path, not static quality.
 - **The quantum-inspired update rule is not carrying the system.** It is
@@ -432,3 +472,11 @@ DEMO.md           the demo script
 - **The server is single-tenant.** One engine in module state, so two browsers
   share one fleet.
 - **No SUMO microsimulation**, and no claim depends on one.
+- **Telemetry updates ambulance state only.** `POST /api/mock/ambulance/telemetry`
+  records a position; it does not regenerate the corridor or trigger a re-plan.
+  `POST /api/ambulance` is the authoritative event trigger. Nothing here is
+  described as live dynamic re-routing, because that is not what it does.
+- **An emergency recovery costs more than an ordinary one.** Making a
+  fifteen-minute corridor visible to the cost model adds a matrix bucket, so the
+  ambulance path runs longer than the closure path. Measured and reported per
+  scenario rather than averaged into one number.

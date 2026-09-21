@@ -16,15 +16,15 @@
    "engines": [
     "alns"
    ],
-   "mean_wall_ms": 442.45,
-   "mean_cpu_s": 0.4388,
-   "mean_mwh": 1.828342,
-   "sd_mwh": 0.085376,
+   "mean_wall_ms": 415.48,
+   "mean_cpu_s": 0.41146,
+   "mean_mwh": 1.71441,
+   "sd_mwh": 0.108704,
    "at_scale": {
     "replans_per_day": 400,
-    "wh_per_day": 0.7313,
-    "kwh_per_year": 0.2669,
-    "kg_co2e_per_year": 0.1911,
+    "wh_per_day": 0.6858,
+    "kwh_per_year": 0.2503,
+    "kg_co2e_per_year": 0.1792,
     "co2e_factor": "0.716 kg CO2e/kWh (CEA all-India grid average, 2023-24)"
    },
    "trials": 12
@@ -33,15 +33,15 @@
    "engines": [
     "qpso"
    ],
-   "mean_wall_ms": 449.48,
-   "mean_cpu_s": 0.44401,
-   "mean_mwh": 1.850043,
-   "sd_mwh": 0.125563,
+   "mean_wall_ms": 435.83,
+   "mean_cpu_s": 0.42708,
+   "mean_mwh": 1.779514,
+   "sd_mwh": 0.162662,
    "at_scale": {
     "replans_per_day": 400,
-    "wh_per_day": 0.74,
-    "kwh_per_year": 0.2701,
-    "kg_co2e_per_year": 0.1934,
+    "wh_per_day": 0.7118,
+    "kwh_per_year": 0.2598,
+    "kg_co2e_per_year": 0.186,
     "co2e_factor": "0.716 kg CO2e/kWh (CEA all-India grid average, 2023-24)"
    },
    "trials": 12
@@ -50,15 +50,15 @@
    "engines": [
     "emergency"
    ],
-   "mean_wall_ms": 262.17,
-   "mean_cpu_s": 0.26042,
-   "mean_mwh": 1.085069,
-   "sd_mwh": 0.171876,
+   "mean_wall_ms": 219.96,
+   "mean_cpu_s": 0.21875,
+   "mean_mwh": 0.911458,
+   "sd_mwh": 0.100092,
    "at_scale": {
     "replans_per_day": 400,
-    "wh_per_day": 0.434,
-    "kwh_per_year": 0.1584,
-    "kg_co2e_per_year": 0.1134,
+    "wh_per_day": 0.3646,
+    "kwh_per_year": 0.1331,
+    "kg_co2e_per_year": 0.0953,
     "co2e_factor": "0.716 kg CO2e/kWh (CEA all-India grid average, 2023-24)"
    },
    "trials": 12
@@ -70,15 +70,15 @@
     "alns",
     "ortools"
    ],
-   "mean_wall_ms": 422.88,
-   "mean_cpu_s": 0.41797,
-   "mean_mwh": 1.741536,
-   "sd_mwh": 0.121403,
+   "mean_wall_ms": 421.99,
+   "mean_cpu_s": 0.41406,
+   "mean_mwh": 1.72526,
+   "sd_mwh": 0.167716,
    "at_scale": {
     "replans_per_day": 400,
-    "wh_per_day": 0.6966,
-    "kwh_per_year": 0.2543,
-    "kg_co2e_per_year": 0.1821,
+    "wh_per_day": 0.6901,
+    "kwh_per_year": 0.2519,
+    "kg_co2e_per_year": 0.1804,
     "co2e_factor": "0.716 kg CO2e/kWh (CEA all-India grid average, 2023-24)"
    },
    "trials": 12

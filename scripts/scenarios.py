@@ -52,13 +52,31 @@ def fresh(g, seed=4, n=30, k=5, budget=0.7):
     return eng, inst, lat0, lon0
 
 
-def record(sid, title, passed, detail, exercised):
-    RESULTS.append({"id": sid, "title": title, "pass": bool(passed),
-                    "exercised": exercised, "detail": detail})
+def record(sid, title, passed, detail, exercised, performance=None):
+    """Record a scenario verdict.
+
+    FUNCTIONAL CORRECTNESS AND PERFORMANCE ARE SEPARATE DIMENSIONS.
+
+    A scenario that survives four incidents correctly in 552 ms is useful
+    evidence even though it misses a 500 ms target, and collapsing those two
+    facts into one green tick hides the second one. `performance`, when given,
+    is `{"metric", "value_ms", "target_ms"}` and is reported as its own
+    MEETS/OVER verdict that does NOT change the functional verdict.
+    """
+    row = {"id": sid, "title": title, "pass": bool(passed),
+           "exercised": exercised, "detail": detail}
+    if performance:
+        meets = performance["value_ms"] <= performance["target_ms"]
+        row["performance"] = {**performance, "meets_target": meets}
+    RESULTS.append(row)
     flag = "PASS" if passed else "FAIL"
     if not exercised:
         flag = "VACUOUS"          # condition never triggered -> not a pass
-    print(f"  [{flag}] {sid}: {title}")
+    perf = ""
+    if performance:
+        perf = ("  [PERF MEETS]" if row["performance"]["meets_target"]
+                else "  [PERF OVER]")
+    print(f"  [{flag}] {sid}: {title}{perf}")
     for line in detail:
         print(f"         {line}")
     print()
@@ -196,20 +214,35 @@ def s4(g):
 
 
 def s5(g):
-    """Multiple rush-hour incidents -> robustness and p95 latency."""
+    """Multiple rush-hour incidents -> robustness AND the latency target.
+
+    Two independent verdicts, deliberately. The functional question is whether
+    the plan survives four consecutive incidents and stays feasible. The
+    performance question is whether the recovery met its deadline. Reporting
+    only the first would hide an over-target p95 behind a green tick; reporting
+    only the second would call a correct system broken.
+    """
     eng, inst, lat0, lon0 = fresh(g)
     lat_ms, total_edges = [], 0
     for i in (2, 9, 15, 21):
         c = inst.customers[i % inst.n]
         total_edges += len(eng.apply_closure(c.lat, c.lon, radius_m=280))
-        r = eng.replan(budget=0.35, seed=1, engines=("qpso",))
+        r = eng.replan(budget=0.25, seed=1, engines=("alns",))
         lat_ms.append(r.total_ms)
     p95 = sorted(lat_ms)[int(0.95 * (len(lat_ms) - 1))]
+    target = 500.0
     record("S5", "multiple rush-hour incidents", eng.incumbent.feasible, [
         f"incidents injected: 4, edges closed total: {total_edges}",
+        f"functional: plan still feasible after all four = "
+        f"{eng.incumbent.feasible}",
         f"latencies: {[round(x) for x in lat_ms]} ms",
-        f"p95: {p95:.0f} ms (budget 500 ms)",
-    ], exercised=total_edges > 0)
+        f"p95: {p95:.0f} ms against a {target:.0f} ms target -> "
+        f"{'MEETS' if p95 <= target else 'OVER'}",
+        "functional correctness and the latency target are reported "
+        "separately; one does not excuse the other",
+    ], exercised=total_edges > 0,
+        performance={"metric": "recovery p95", "value_ms": round(p95, 1),
+                     "target_ms": target})
 
 
 def s6(g):
@@ -247,27 +280,83 @@ def s7(g):
 
 
 def s8(g):
-    """Ambulance dispatch -> corridor opens, BOTH sides measured."""
-    eng, inst, lat0, lon0 = fresh(g)
-    eng.seed_ambulances(2)
-    d = eng.dispatch_ambulance(lat0 + 0.003, lon0 + 0.003, severity=2)
-    if not d.get("ok"):
-        record("S8", "ambulance dispatch", False, ["dispatch failed"], False)
+    """Ambulance dispatch -> corridor opens -> the FLEET IS MEASURABLY AFFECTED.
+
+    The version this replaces could report PASS while the recorded cost of
+    priority was +0.0. That is a scenario proving an ambulance path exists, not
+    proving the interaction the project is about. Zero impact is a legitimate
+    outcome when the ambulance never crosses the fleet in time -- but a test
+    that cannot tell the two apart is not evidence.
+
+    So the scene is CHOSEN, deterministically, to create the interaction:
+    candidates are the first stop on each non-empty route, in vehicle order.
+    Those legs are driven at the start of the shift, which is also when the
+    ambulance is on the road, so their traversal intervals can actually overlap
+    the corridor's per-edge occupancy windows. The first candidate that
+    produces a measurable effect wins and is printed.
+
+    What the scenario does NOT do is force a re-route. Acceptance still decides
+    whether the fleet should move; the assertion is that the corridor changed
+    the incumbent's cost and touched at least one delivery vehicle, not that
+    the map moved.
+    """
+    chosen = None
+    for idx in range(6):
+        eng, inst, lat0, lon0 = fresh(g)
+        eng.seed_ambulances(2)
+        # deterministic candidate set: the first stop of each busy route
+        firsts = [r.customer_ids[0] for r in eng.incumbent.routes
+                  if r.customer_ids]
+        if idx >= len(firsts):
+            break
+        cust = {c.id: c for c in inst.customers}
+        target = cust.get(firsts[idx])
+        if target is None:
+            continue
+        d = eng.dispatch_ambulance(target.lat, target.lon, severity=2)
+        if not d.get("ok"):
+            continue
+        res = eng.replan(budget=0.25, seed=1, engines=("alns",))
+        pri = res.priority or {}
+        if pri.get("interaction"):
+            chosen = (idx, target, d, res, pri, eng, inst)
+            break
+
+    if chosen is None:
+        record("S8", "ambulance corridor measurably affects the fleet", False,
+               ["no candidate scene produced a measurable fleet impact -- the "
+                "scenario did not exercise the interaction it claims to test"],
+               exercised=False)
         return
-    res = eng.replan(budget=0.35, seed=1, engines=("qpso",))
+
+    idx, target, d, res, pri, eng, inst = chosen
     ok = (d["time_saved_min"] > 0 and d["path_ms"] < 200
-          and d["cost_of_priority"] is not None)
-    record("S8", "ambulance dispatch + green corridor", ok, [
+          and pri["cost_of_priority"] > 0.0
+          and len(pri["affected_vehicles"]) >= 1)
+    record("S8", "ambulance corridor measurably affects the fleet", ok, [
+        f"scene chosen deterministically: candidate {idx}, stop {target.id} "
+        f"(first stop on a busy route, so its leg is driven while the "
+        f"ambulance is on the road)",
         f"unit {d['unit']} -> {d['hospital']}",
         f"ambulance: {d['total_min']} min vs {d['baseline_min']} min without "
         f"priority = {d['time_saved_min']} min SAVED",
-        f"corridor: {d['corridor_edges']} edges, window "
-        f"{d['corridor_window_min'][0]}-{d['corridor_window_min'][1]} min",
-        f"COST OF PRIORITY to the fleet: +{d['cost_of_priority']} "
-        f"({d['fleet_cost_before']} -> {d['fleet_cost_after']})",
+        f"corridor: {d['corridor_edges']} edges, {d['corridor_edge_windows']} "
+        f"per-edge occupancy windows averaging "
+        f"{d['corridor_edge_window_s']:.0f} s",
+        f"delivery legs crossing the corridor inside its window: "
+        f"{pri['route_corridor_overlaps']} "
+        f"(denominator: this is the interaction being claimed)",
+        f"affected vehicles: {pri['affected_vehicles']}",
+        f"COST OF PRIORITY to the fleet: +{pri['cost_of_priority']} "
+        f"({pri['fleet_cost_before']} -> {pri['fleet_cost_after']})",
         f"emergency path latency: {d['path_ms']} ms (budget 200 ms)",
-        f"fleet re-plan: {res.total_ms:.0f} ms, {res.case}",
-    ], exercised=d["corridor_edges"] > 0)
+        f"fleet recovery: {res.total_ms:.0f} ms, {res.case}",
+        f"acceptance decided by the normal rule, not by the scenario: "
+        f"{'accepted' if res.accepted else 'held'}",
+    ], exercised=pri["interaction"] and d["corridor_edges"] > 0,
+        performance={"metric": "dispatch + recovery",
+                     "value_ms": round(d["path_ms"] + res.total_ms, 1),
+                     "target_ms": 500.0})
 
 
 def s9(g):
