@@ -39,6 +39,12 @@
       <div id="netmeta"></div>
     </section>
     <section>
+      <span class="rubric">Legend</span>
+      <div class="legend" id="legend"></div>
+      <button type="button" class="ghosttog" id="btnGhost" hidden
+              aria-pressed="true">Hide previous plan</button>
+    </section>
+    <section>
       <span class="rubric">Energy · last solve</span>
       <div id="energy"></div>
     </section>
@@ -50,35 +56,69 @@
     <canvas id="map"></canvas>
 
     <div class="block blk-tl">
-      <div class="hd"><span class="rubric">Control</span></div>
+      <div class="hd"><span class="rubric">Operator sequence</span></div>
       <div class="bd">
-        <div class="btnrow">
-          <button class="act primary" id="btnPlan">Plan routes</button>
-          <button class="act slim" id="btnReset" title="Rebuild the instance">Reset</button>
-        </div>
-        <div class="seg" id="modeSeg">
-          <label><input type="radio" name="ev" value="closure" checked>
-            <span><i class="key" id="k-closure"></i>Closure</span></label>
-          <label><input type="radio" name="ev" value="congestion">
-            <span><i class="key" id="k-congestion"></i>Jam</span></label>
-          <label><input type="radio" name="ev" value="ambulance">
-            <span><i class="key" id="k-ambulance"></i>Amb</span></label>
-        </div>
-        <div class="btnrow gap-t">
-          <button class="act" id="btnReplan" disabled>Re-plan under new costs</button>
-        </div>
+
+        <!-- 01 ------------------------------------------------ initialize -->
+        <section class="step" id="step1" data-state="ready">
+          <div class="sh">
+            <span class="no">01</span>
+            <h2>Initialize fleet</h2>
+            <span class="st" id="st1">Ready</span>
+          </div>
+          <div class="sb">
+            <dl class="spec" id="spec1"></dl>
+            <div class="btnrow">
+              <button class="act primary" id="btnPlan">Initialize fleet</button>
+              <button class="act slim" id="btnReset"
+                      title="Clear the plan and rebuild the scenario">Reset</button>
+            </div>
+            <ul class="checks" id="checks1" hidden></ul>
+          </div>
+        </section>
+
+        <!-- 02 ---------------------------------------------- inject event -->
+        <section class="step locked" id="step2" data-state="locked">
+          <div class="sh">
+            <span class="no">02</span>
+            <h2>Inject event</h2>
+            <span class="st" id="st2">Awaiting fleet</span>
+          </div>
+          <div class="sb">
+            <div class="evseg" id="evSeg">
+              <button type="button" class="evbtn on" data-ev="closure" disabled>
+                <i class="key" id="k-closure"></i><span>Road closure</span></button>
+              <button type="button" class="evbtn" data-ev="congestion" disabled>
+                <i class="key" id="k-congestion"></i><span>Severe congestion</span></button>
+              <button type="button" class="evbtn" data-ev="ambulance" disabled>
+                <i class="key" id="k-ambulance"></i><span>Ambulance</span></button>
+            </div>
+            <dl class="spec brief" id="evBrief"></dl>
+          </div>
+        </section>
+
+        <!-- 03 -------------------------------------------------- recovery -->
+        <section class="step locked" id="step3" data-state="locked">
+          <div class="sh">
+            <span class="no">03</span>
+            <h2>Recover fleet</h2>
+            <span class="st" id="st3">Awaiting event</span>
+          </div>
+          <div class="sb">
+            <button class="act big" id="btnReplan" disabled>Run RoutePulse recovery</button>
+            <div class="sublab" id="recoverSub">Traffic-Aware ALNS · one global
+              wall-clock deadline</div>
+            <ul class="phases" id="phases" hidden></ul>
+          </div>
+        </section>
+
         <div class="btnrow gap-t">
           <button class="act" id="btnAdvance" disabled
                   title="Let the fleet drive: stops whose ETA has passed are served, vehicles move, and the next re-plan starts from there">Advance clock +20 min</button>
         </div>
-        <div class="hint" id="hint">Plan first, then click <b>on a route line</b>
-          to break it. Clicking empty road is a correct no-op.</div>
+        <div class="hint" id="hint">Press <b>Initialize fleet</b> to load the
+          scenario and build a first feasible plan.</div>
       </div>
-    </div>
-
-    <div class="block blk-bl">
-      <div class="hd"><span class="rubric">Legend</span></div>
-      <div class="bd"><div class="legend" id="legend"></div></div>
     </div>
 
     <div class="block blk-br titleblock">
@@ -95,6 +135,12 @@
   </section>
 
   <aside class="drawer">
+    <section id="proofSection" hidden>
+      <span class="rubric">Recovery result</span>
+      <div class="proof" id="proof"></div>
+      <div class="footnote" id="proofNote"></div>
+    </section>
+
     <section>
       <span class="rubric">Acceptance decision</span>
       <div class="verdict idle" id="verdict">
