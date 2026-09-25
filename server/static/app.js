@@ -143,6 +143,12 @@ const S = {
   // the plan that was on screen before the last recovery, drawn underneath the
   // new one so "what changed" is visible rather than asserted
   prev: null, diff: null, showGhost: true, evKind: 'closure',
+  // true while the sheet is waiting for the user to click the network
+  armed: false,
+  // true when something has happened that a re-plan would answer. Owns the
+  // step 03 gate: working() clears .disabled on every call, so the gate has
+  // to be re-derived from state rather than set at each call site.
+  pendingEvent: false,
 };
 
 /** Simulation time as a wall-clock label. The horizon starts at 08:00 local
@@ -305,6 +311,28 @@ function draw(now) {
       ctx.lineDashOffset = REDUCED ? 0 : -(now / 30) % 15;
       polyPath(ctx, leg, t); ctx.stroke();
       ctx.setLineDash([]);
+    }
+  }
+
+  // ---- "these lines are the thing to click".
+  //
+  // The single commonest way this demo fails in front of an audience is a
+  // click on empty road: the closure misses the plan, the system correctly
+  // declines to re-route, and it reads as a broken product. The map tip says
+  // where to click; this makes the target itself legible, by breathing a wide
+  // translucent band under every route while the sheet is armed. It uses each
+  // route's own colour, so it adds no new meaning to a sheet where red, amber
+  // and green are already spoken for.
+  if (S.armed && !REDUCED) {
+    const beat = 0.5 + 0.5 * Math.sin(now / 420);
+    for (const r of S.routes) {
+      if (!r.polyline || r.polyline.length < 2) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.13 + 0.17 * beat;
+      ctx.strokeStyle = r.color;
+      ctx.lineWidth = 11 + 5 * beat;
+      polyPath(ctx, r.polyline, t); ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -481,6 +509,69 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
+/** Is any part of the dispatched ambulance's path outside the sheet? */
+function ambOffScreen() {
+  if (!S.amb) return false;
+  const t = T();
+  for (const leg of [S.amb.leg_a, S.amb.leg_b]) {
+    for (const pt of (leg || [])) {
+      const q = px(pt[0], pt[1], t);
+      if (q[0] < 0 || q[1] < 0 || q[0] > t.w || q[1] > t.h) return true;
+    }
+  }
+  return false;
+}
+
+/** Frame the sheet on the planned routes.
+ *
+ *  The default fit is the whole OpenStreetMap extract, which is taller than it
+ *  is wide; on a wide sheet that leaves the fleet drawn at about 40% of the
+ *  available width with empty paper either side. Since the one interaction
+ *  this demo depends on is clicking ON a route line, the size of that target
+ *  is not cosmetic — it is the difference between a hit and a click on empty
+ *  road, which correctly does nothing and reads as a broken product.
+ *
+ *  Solves CAM.zoom/x/y directly from px(): no animation loop, no guesswork,
+ *  and it is idempotent, so the Fit button can be pressed at any time. */
+function fitToRoutes(padPx) {
+  if (!S.bounds || !S.routes.length) return false;
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  const see = (la, lo) => {
+    if (la < minLat) minLat = la; if (la > maxLat) maxLat = la;
+    if (lo < minLon) minLon = lo; if (lo > maxLon) maxLon = lo;
+  };
+  for (const r of S.routes) {
+    for (const pt of (r.polyline || [])) see(pt[0], pt[1]);
+    for (const st of (r.stops || [])) see(st.lat, st.lon);
+  }
+  if (S.summary.depot) see(S.summary.depot.lat, S.summary.depot.lon);
+  // An emergency that runs off the edge of the sheet is the one thing worth
+  // widening the frame for: the corridor and the hospital are the story.
+  if (S.amb) {
+    for (const leg of [S.amb.leg_a, S.amb.leg_b]) {
+      for (const pt of (leg || [])) see(pt[0], pt[1]);
+    }
+  }
+  if (!isFinite(minLat) || !isFinite(minLon)) return false;
+
+  const t = T();
+  const pad = padPx === undefined ? 48 : padPx;
+  const base = t.s / (CAM.zoom || 1);                 // scale at zoom 1
+  const dLonR = (maxLon - minLon) * t.kx || 1e-9;
+  const dLatR = (maxLat - minLat) || 1e-9;
+  const want = Math.min((t.w - 2 * pad) / dLonR, (t.h - 2 * pad) / dLatR);
+
+  CAM.zoom = Math.max(1, Math.min(14, want / base));
+  const sc = base * CAM.zoom;
+  const dLon = (t.B.maxLon - t.B.minLon) * t.kx;
+  const dLat = (t.B.maxLat - t.B.minLat);
+  const cLat = (minLat + maxLat) / 2, cLon = (minLon + maxLon) / 2;
+  CAM.x = dLon * sc / 2 - (cLon - t.B.minLon) * t.kx * sc;
+  CAM.y = -(dLat * sc) / 2 + (cLat - t.B.minLat) * sc;
+  titleblock();
+  return true;
+}
+
 /* ----------------------------------------------------------- title block */
 
 function titleblock() {
@@ -589,6 +680,11 @@ function working(btn, on, label) {
  *  exists the loud button is "plan"; once it does, the loud button is the one
  *  that recovers from the incident you are about to inject, and re-planning
  *  from scratch drops back to a secondary. */
+/** Re-derive the step 03 gate. Call after anything that toggles the button. */
+function syncRecoverGate() {
+  $('#btnReplan').disabled = !S.pendingEvent;
+}
+
 function setPrimary(which) {
   $('#btnPlan').classList.toggle('primary', which === 'plan');
   $('#btnReplan').classList.toggle('primary', which === 'replan');
@@ -670,12 +766,48 @@ function renderEvBrief() {
   for (const [k, v] of (EV_BRIEF[S.evKind] || [])) specRow(dl, k, v);
 }
 
+/* The prompt over the map. Three states, and it names the ACTION rather than
+ * describing the mode: "Click a coloured route line" is something a person can
+ * do, "closure mode active" is not. */
+const TIP_TARGET = {
+  closure: 'to close that road',
+  congestion: 'to jam that road',
+};
+
+function setMapTip(mode) {
+  const el = $('#maptip');
+  const txt = $('#maptipText');
+  S.armed = (mode === 'click');
+  if (mode === 'none') { el.hidden = true; clear(txt); return; }
+
+  clear(txt);
+  if (mode === 'click') {
+    if (S.evKind === 'ambulance') {
+      put(txt, 'Click ', h('b', { text: 'anywhere on the map' }),
+          ' to place the emergency');
+    } else {
+      put(txt, 'Click ', h('b', { text: 'directly on a coloured route line' }),
+          ' ' + (TIP_TARGET[S.evKind] || ''));
+    }
+  } else if (mode === 'recover') {
+    put(txt, 'Event injected — now press ',
+        h('b', { text: 'Run RoutePulse recovery' }), ' in step 03');
+  }
+  el.hidden = false;
+  if (!REDUCED) {
+    el.animate([{ opacity: 0, transform: 'translate(-50%,-6px)' },
+                { opacity: 1, transform: 'translate(-50%,0)' }],
+      { duration: 260, easing: EASE });
+  }
+}
+
 function setEvKind(kind) {
   S.evKind = kind;
   for (const b of document.querySelectorAll('.evbtn')) {
     b.classList.toggle('on', b.dataset.ev === kind);
   }
   renderEvBrief();
+  if (S.armed) setMapTip('click');          // re-word for the new type
   $('#recoverSub').textContent = kind === 'ambulance'
     ? 'Dispatch recovers the fleet in the same action — step 03 is automatic'
     : 'Traffic-Aware ALNS · one global wall-clock deadline';
@@ -1331,10 +1463,18 @@ $('#btnPlan').addEventListener('click', async () => {
     S.prev = null; S.diff = null;
     $('#proofSection').hidden = true;
     $('#phases').hidden = true;
-    $('#btnReplan').disabled = false;
+    // Step 03 is drawn dimmed until an event exists. It must not be pressable
+    // while it looks locked — a control whose appearance and behaviour
+    // disagree is the thing this whole pass is fixing.
+    S.pendingEvent = false;
+    syncRecoverGate();
     $('#btnAdvance').disabled = false;
     for (const el of document.querySelectorAll('.evbtn')) el.disabled = false;
-    setPrimary('replan');
+    // The next action is a click on the MAP, not a press in the rail. Leaving
+    // step 03 lit here is what made the sequence ambiguous: it said "awaiting
+    // event" while looking like the thing to press next.
+    setPrimary('none');
+    fitToRoutes();
     renderEnergy(d.energy, null);
     renderNetMeta(); renderSpec();      // re-run now that S.planned is true
     renderChecks([
@@ -1344,8 +1484,10 @@ $('#btnPlan').addEventListener('click', async () => {
         + ' plan generated · ' + d.plan_ms.toFixed(0) + ' ms',
     ]);
     setStep(1, 'done', 'Loaded');
-    setStep(2, 'active', 'Choose a type');
+    setStep(2, 'active', 'Click the map');
     setStep(3, 'locked', 'Awaiting event');
+    $('#spec1').hidden = true;
+    setMapTip('click');
     $('#statusText').textContent = S.boot.nodes.toLocaleString() + ' junctions · '
       + S.boot.customers + ' stops · ' + S.boot.vehicles + ' vehicles';
     $('#hint').textContent = 'Pick an event type, then click '
@@ -1356,6 +1498,7 @@ $('#btnPlan').addEventListener('click', async () => {
   } catch (err) {
     setStep(1, 'ready', 'Failed');
     renderChecks([]);
+    setMapTip('none');
     toast('Initialize failed: ' + err.message, true);
   } finally { working(b, false, 'Re-initialize fleet'); busy(false); }
 });
@@ -1379,6 +1522,10 @@ $('#btnReplan').addEventListener('click', async () => {
     plot($('#conv'), S.conv, { empty: 'run a re-plan to record convergence' });
     renderTimeline();
     setStep(3, 'done', 'Recovery complete');
+    setStep(2, 'active', 'Click the map');
+    S.pendingEvent = false;
+    setPrimary('none');
+    setMapTip('click');
     const moved = ((d.churn && d.churn.vehicles_changed) || []).length;
     $('#hint').textContent = d.accepted
       ? 'Recovery accepted · ' + moved + ' of '
@@ -1392,7 +1539,19 @@ $('#btnReplan').addEventListener('click', async () => {
     setStep(3, 'active', 'Failed');
     $('#phases').hidden = true;
     toast('Recovery failed: ' + err.message, true);
-  } finally { working(b, false, 'Run RoutePulse recovery'); busy(false); }
+  } finally {
+    working(b, false, 'Run RoutePulse recovery');
+    syncRecoverGate();            // working() clears .disabled; re-apply the gate
+    busy(false);
+  }
+});
+
+/* A live demo that zooms the wrong way has no way back — there was no
+ * reset-view control, and "scroll back out until it looks right" is not a
+ * recovery you want to perform on camera. */
+$('#btnFit').addEventListener('click', () => {
+  if (fitToRoutes()) toast('Map framed on the fleet');
+  else toast('Nothing planned yet — initialize the fleet first');
 });
 
 $('#btnGhost').addEventListener('click', () => {
@@ -1426,7 +1585,7 @@ $('#btnReset').addEventListener('click', async () => {
     $('#proofSection').hidden = true;
     $('#phases').hidden = true;
     $('#btnGhost').hidden = true;
-    $('#btnReplan').disabled = true;
+    S.pendingEvent = false; syncRecoverGate();
     $('#btnAdvance').disabled = true;
     $('#btnPlan').textContent = 'Initialize fleet';
     for (const el of document.querySelectorAll('.evbtn')) el.disabled = true;
@@ -1435,6 +1594,8 @@ $('#btnReset').addEventListener('click', async () => {
     setStep(2, 'locked', 'Awaiting fleet');
     setStep(3, 'locked', 'Awaiting event');
     renderChecks([]);
+    $('#spec1').hidden = false;
+    setMapTip('none');
     S.clock = 0;
     clear($('#band')); clear($('#latency')); clear($('#race')); clear($('#reasons'));
     renderBand(); renderFleet(); renderTimeline(); renderNetMeta(); renderSpec();
@@ -1457,6 +1618,9 @@ $('#btnAdvance').addEventListener('click', async () => {
   try {
     const d = await api('/api/advance?minutes=20', { method: 'POST' });
     applyPlan(d, false);
+    // The clock moving is itself a reason to re-plan, even with no incident.
+    S.pendingEvent = true; syncRecoverGate();
+    setStep(3, 'active', 'Ready');
     $('#hint').textContent = d.served + ' stop(s) completed, '
       + d.remaining + ' still pending. Vehicles are now where they actually '
       + 'are — the next re-plan starts from there, not from the depot.';
@@ -1504,8 +1668,11 @@ async function inject(sx, sy) {
         renderRace(d.recovery);
         renderEnergy(d.recovery.energy, d.recovery.energy_at_scale);
         plot($('#conv'), S.conv, { empty: 'run a re-plan to record convergence' });
-        setStep(2, 'done', 'Dispatched');
+        setStep(2, 'active', 'Click the map');
         setStep(3, 'done', 'Recovery complete');
+        S.pendingEvent = false; syncRecoverGate();
+        if (ambOffScreen()) { fitToRoutes(); toast('Map re-framed to show the emergency route'); }
+        setMapTip('click');
         $('#hint').textContent = 'Ambulance dispatched, corridor open, and the '
           + 'fleet has already re-planned around it — one action. The dashed '
           + 'lines are the routes it replaced.';
@@ -1516,6 +1683,9 @@ async function inject(sx, sy) {
         $('#phases').hidden = true;
         setStep(2, 'done', 'Dispatched');
         setStep(3, 'active', 'Ready');
+        S.pendingEvent = true; syncRecoverGate();
+        setPrimary('replan');
+        setMapTip('recover');
         $('#hint').textContent = 'Ambulance dispatched and the corridor is open.';
         toast(d.unit + ' → ' + d.hospital + ' · ' + d.time_saved_min + ' min saved');
       }
@@ -1538,11 +1708,15 @@ async function inject(sx, sy) {
       // there were something to recover from.
       $('#hint').textContent = 'That point is outside the service area — no edge '
         + 'was affected. Click ON a coloured route line.';
+      setMapTip('click');
       toast('0 edges affected — that point is outside the service area', true);
       return;
     }
     setStep(2, 'done', 'Injected');
     setStep(3, 'active', 'Ready');
+    S.pendingEvent = true; syncRecoverGate();
+    setPrimary('replan');
+    setMapTip('recover');
     $('#phases').hidden = true;
     $('#hint').textContent = d.label + ' injected. Press '
       + 'Run RoutePulse recovery.';

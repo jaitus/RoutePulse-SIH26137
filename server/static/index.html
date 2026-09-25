@@ -30,19 +30,86 @@
 <main id="ops" class="view on" role="tabpanel" aria-labelledby="tabOps">
 
   <aside class="rail">
+    <section class="seqsec">
+      <span class="rubric">Operator sequence</span>
+    <!-- 01 ------------------------------------------------ initialize -->
+    <section class="step" id="step1" data-state="ready">
+      <div class="sh">
+        <span class="no">01</span>
+        <h2>Initialize fleet</h2>
+        <span class="st" id="st1">Ready</span>
+      </div>
+      <div class="sb">
+        <dl class="spec" id="spec1"></dl>
+        <div class="btnrow">
+          <button class="act primary" id="btnPlan">Initialize fleet</button>
+          <button class="act slim" id="btnReset"
+                  title="Clear the plan and rebuild the scenario">Reset</button>
+        </div>
+        <ul class="checks" id="checks1" hidden></ul>
+      </div>
+    </section>
+
+    <!-- 02 ---------------------------------------------- inject event -->
+    <section class="step locked" id="step2" data-state="locked">
+      <div class="sh">
+        <span class="no">02</span>
+        <h2>Inject event</h2>
+        <span class="st" id="st2">Awaiting fleet</span>
+      </div>
+      <div class="sb">
+        <div class="evseg" id="evSeg">
+          <button type="button" class="evbtn on" data-ev="closure" disabled>
+            <i class="key" id="k-closure"></i><span>Road closure</span></button>
+          <button type="button" class="evbtn" data-ev="congestion" disabled>
+            <i class="key" id="k-congestion"></i><span>Severe congestion</span></button>
+          <button type="button" class="evbtn" data-ev="ambulance" disabled>
+            <i class="key" id="k-ambulance"></i><span>Ambulance</span></button>
+        </div>
+        <dl class="spec brief" id="evBrief"></dl>
+      </div>
+    </section>
+
+    <!-- 03 -------------------------------------------------- recovery -->
+    <section class="step locked" id="step3" data-state="locked">
+      <div class="sh">
+        <span class="no">03</span>
+        <h2>Recover fleet</h2>
+        <span class="st" id="st3">Awaiting event</span>
+      </div>
+      <div class="sb">
+        <button class="act big" id="btnReplan" disabled>Run RoutePulse recovery</button>
+        <div class="sublab" id="recoverSub">Traffic-Aware ALNS · one global
+          wall-clock deadline</div>
+        <ul class="phases" id="phases" hidden></ul>
+      </div>
+    </section>
+
+    <div class="btnrow gap-t">
+      <button class="act" id="btnAdvance" disabled
+              title="Let the fleet drive: stops whose ETA has passed are served, vehicles move, and the next re-plan starts from there">Advance clock +20 min</button>
+    </div>
+    <div class="hint" id="hint">Press <b>Initialize fleet</b> to load the
+      scenario and build a first feasible plan.</div>
+    </section>
     <section>
       <span class="rubric">Fleet</span>
       <div id="fleet"></div>
     </section>
     <section>
+      <span class="rubric">Legend</span>
+      <div class="legend" id="legend"></div>
+      <button type="button" class="ghosttog" id="btnFit">Fit map to routes</button>
+      <button type="button" class="ghosttog" id="btnGhost" hidden
+              aria-pressed="true">Hide previous plan</button>
+    </section>
+    <section>
       <span class="rubric">Network</span>
       <div id="netmeta"></div>
     </section>
-    <section>
-      <span class="rubric">Legend</span>
-      <div class="legend" id="legend"></div>
-      <button type="button" class="ghosttog" id="btnGhost" hidden
-              aria-pressed="true">Hide previous plan</button>
+    <section class="titleblock">
+      <span class="rubric">Sheet data</span>
+      <div id="titleblock"></div>
     </section>
     <section>
       <span class="rubric">Energy · last solve</span>
@@ -55,75 +122,11 @@
   <section class="sheet">
     <canvas id="map"></canvas>
 
-    <div class="block blk-tl">
-      <div class="hd"><span class="rubric">Operator sequence</span></div>
-      <div class="bd">
-
-        <!-- 01 ------------------------------------------------ initialize -->
-        <section class="step" id="step1" data-state="ready">
-          <div class="sh">
-            <span class="no">01</span>
-            <h2>Initialize fleet</h2>
-            <span class="st" id="st1">Ready</span>
-          </div>
-          <div class="sb">
-            <dl class="spec" id="spec1"></dl>
-            <div class="btnrow">
-              <button class="act primary" id="btnPlan">Initialize fleet</button>
-              <button class="act slim" id="btnReset"
-                      title="Clear the plan and rebuild the scenario">Reset</button>
-            </div>
-            <ul class="checks" id="checks1" hidden></ul>
-          </div>
-        </section>
-
-        <!-- 02 ---------------------------------------------- inject event -->
-        <section class="step locked" id="step2" data-state="locked">
-          <div class="sh">
-            <span class="no">02</span>
-            <h2>Inject event</h2>
-            <span class="st" id="st2">Awaiting fleet</span>
-          </div>
-          <div class="sb">
-            <div class="evseg" id="evSeg">
-              <button type="button" class="evbtn on" data-ev="closure" disabled>
-                <i class="key" id="k-closure"></i><span>Road closure</span></button>
-              <button type="button" class="evbtn" data-ev="congestion" disabled>
-                <i class="key" id="k-congestion"></i><span>Severe congestion</span></button>
-              <button type="button" class="evbtn" data-ev="ambulance" disabled>
-                <i class="key" id="k-ambulance"></i><span>Ambulance</span></button>
-            </div>
-            <dl class="spec brief" id="evBrief"></dl>
-          </div>
-        </section>
-
-        <!-- 03 -------------------------------------------------- recovery -->
-        <section class="step locked" id="step3" data-state="locked">
-          <div class="sh">
-            <span class="no">03</span>
-            <h2>Recover fleet</h2>
-            <span class="st" id="st3">Awaiting event</span>
-          </div>
-          <div class="sb">
-            <button class="act big" id="btnReplan" disabled>Run RoutePulse recovery</button>
-            <div class="sublab" id="recoverSub">Traffic-Aware ALNS · one global
-              wall-clock deadline</div>
-            <ul class="phases" id="phases" hidden></ul>
-          </div>
-        </section>
-
-        <div class="btnrow gap-t">
-          <button class="act" id="btnAdvance" disabled
-                  title="Let the fleet drive: stops whose ETA has passed are served, vehicles move, and the next re-plan starts from there">Advance clock +20 min</button>
-        </div>
-        <div class="hint" id="hint">Press <b>Initialize fleet</b> to load the
-          scenario and build a first feasible plan.</div>
-      </div>
-    </div>
-
-    <div class="block blk-br titleblock">
-      <div class="hd"><span class="rubric">Sheet data</span></div>
-      <div class="bd" id="titleblock"></div>
+    <!-- The only thing allowed over the map. pointer-events:none, so it points
+         at the action without stealing the click it is asking for. -->
+    <div class="maptip" id="maptip" hidden>
+      <span class="pulse"></span>
+      <span id="maptipText"></span>
     </div>
 
     <div class="scrim" id="scrim">

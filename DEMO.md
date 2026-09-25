@@ -17,12 +17,20 @@ Open <http://127.0.0.1:8000>. No internet needed.
 
 ## The 4-minute demo
 
-**0. Before they walk in.** Press *Plan routes* once so the graph and matrix are
-warm, then press *Reset*. The first build is a cold 900 ms; every later one is
+The sheet drives as a numbered sequence in the left column — **01 Initialize
+fleet → 02 Inject event → 03 Recover fleet** — and nothing is drawn over the
+map, so every point of the network is clickable. While the sheet is waiting for
+a click, a prompt sits at the top of the map naming the exact action, and the
+route lines breathe a wide halo to show what the target is.
+
+**0. Before they walk in.** Press *Initialize fleet* once and let it finish,
+then press it again. The first build is a cold 900 ms; every later one is
 ~110 ms, and you do not want to spend your opening sentence apologising.
 
 **1. "This is a Bengaluru delivery fleet — 30 stops, 5 vehicles, real road graph."**
-Press **Plan routes**. Routes draw themselves onto the map. Point at the left
+Press **Initialize fleet**. It loads the scenario and solves it in one press,
+confirms what it loaded with three ✓ lines, and frames the map on the fleet.
+Routes draw themselves onto the map. Point at the left
 rail: per-vehicle load bars, and *two vehicles idle* — the optimiser decided it
 did not need them. Point at the band above the map: fleet travel, makespan,
 stops on time, vehicles used, and **VALID** on the feasibility gate. Bottom
@@ -36,7 +44,12 @@ right behaviour and a boring demo. Closed roads go red, a shockwave marks the
 injection point, and the event lands on the timeline at the bottom with a
 timestamp.
 
-**3. "Re-plan."** Press it, then talk through the right-hand drawer top to bottom:
+**3. "Recover."** Step 03 stays locked and dimmed until an event exists, then
+turns orange — the emphasis follows the sequence, so there is never a lit button
+competing with the map for attention. Press **Run RoutePulse recovery**, then
+talk through the right-hand drawer top to bottom. The stage list under the
+button fills in with the times the *server* measured, and they add up to the
+total:
 
 - **Acceptance decision** — "It tells you *why*, generated from the state diff,
   not from prose. If it says CASE 1 *rejected*, that is the system refusing to
@@ -60,8 +73,9 @@ timestamp.
   one shift. Nobody in the literature reports this; we do, and the badge says
   whether it came from a sensor or a model."
 
-**4. The ambulance — one action, and a measured effect.** Switch the mode to **Ambulance** and click a
-busy area. Do not press anything else. "This is not a vehicle in the routing
+**4. The ambulance — one action, and a measured effect.** Pick **Ambulance** in
+step 02 — the brief under it states the dispatch, the severity and both legs
+before you commit — then click a busy area. Do not press anything else. "This is not a vehicle in the routing
 problem — it is a different problem coupled through the cost layer. One click
 dispatched the unit, computed its priority route, published a green corridor
 with a *per-edge* occupancy window, and re-planned the delivery fleet around it.
@@ -184,7 +198,7 @@ Slide 10 is not a weakness. It is the slide that makes 1–9 believable.
 - Port busy → `--port 8001`.
 - Blank map → hard-refresh (Ctrl+Shift+R); the canvas sizes on load. The render
   loop catches its own errors and raises a toast rather than dying silently.
-- Map looks wrong after zooming → scroll back out; there is no reset-view button.
+- Map looks wrong after zooming → press **Fit map to routes** in the rail.
 - Everything → **Reset** restores a clean fixed-seed scenario.
 - Evidence tab empty → the `out/*.json` files are missing; each panel names the
   script that produces it.
