@@ -121,16 +121,21 @@ function toast(msg, bad) {
  * apart -- every label in step 01 is rendered from this object and the same
  * object is what POST /api/reset is called with.
  *
- * NOTE ON SIZE: the committed latency evidence measures 60 stops / 10 vehicles
- * at p95 497.76 ms -- inside the 500 ms target, but only just. This demo runs
- * 60 stops on EIGHT vehicles, which is not a size the benchmark covers. If the
- * live end-to-end figure in the proof block starts landing over 500 ms on the
- * demo machine, drop this back to { customers: 30, vehicles: 5 } -- that is the
- * size every headline number in the Evidence tab was measured at.
+ * SIZE IS DELIBERATELY 30/5: it is the exact instance every headline number in
+ * the Evidence tab was measured at. That is the whole reason, and it is worth
+ * more than a bigger-looking fleet. When the demo instance and the benchmark
+ * instance are the same size, the latency on screen is directly comparable
+ * with the latency on the evidence page, and nobody -- presenter or judge --
+ * has to carry a qualifier to keep the two apart.
+ *
+ * A 60-stop demo was measured here at 558-749 ms on the four-engine race,
+ * against a benchmark that only covers 60 stops on TEN vehicles (p95 497.76 ms,
+ * single engine). Not wrong, but unverified at that shape and over target on
+ * screen all evening. Raise this only alongside a benchmark run at the new size.
  */
 const SCENARIO = {
-  customers: 60,
-  vehicles: 8,
+  customers: 30,
+  vehicles: 5,
   seed: 7,
   zone: 'Bengaluru service zone',
   profile: '08:00–22:00',
