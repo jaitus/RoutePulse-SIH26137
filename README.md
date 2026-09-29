@@ -19,7 +19,7 @@ pip install -r requirements.txt
 python -m uvicorn server.app:app --port 8000
 ```
 
-Open <https://routepulse-sih.vercel.app)>.
+Open <https://routepulse-sih.vercel.app>.
 
 The console has two modes:
 
